@@ -63,6 +63,8 @@ private:
 
     off64_t mOffset;
 
+    int64_t mEstimateDuration;
+
     void init();
     status_t feedMore();
     status_t seek(int64_t seekTimeUs,
@@ -71,6 +73,7 @@ private:
     status_t seekBeyond(int64_t seekTimeUs);
 
     status_t feedUntilBufferAvailable(const sp<AnotherPacketSource> &impl);
+    int64_t  estimateDuration(bool filp);
 
     DISALLOW_EVIL_CONSTRUCTORS(MPEG2TSExtractor);
 };

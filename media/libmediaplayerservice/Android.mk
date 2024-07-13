@@ -6,6 +6,10 @@ LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
 
+ifeq ($(USE_PROJECT_SEC),true)
+LOCAL_CFLAGS += -DUSE_PROJECT_SEC
+endif
+
 LOCAL_SRC_FILES:=               \
     ActivityManager.cpp         \
     Crypto.cpp                  \
@@ -53,6 +57,14 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/webm                  \
     $(TOP)/frameworks/native/include/media/openmax                  \
     $(TOP)/external/tremolo/Tremolo                                 \
+
+ifeq ($(AUDIO_24BITS_OUTPUT), 1)
+    LOCAL_CFLAGS += -DAUDIO_24BIT_PLAYBACK_SUPPORT
+endif
+
+ifeq ($(strip $(TARGET_BOARD_CAMERA_EIS)),true)
+    LOCAL_CFLAGS += -DCONFIG_SPRD_RECORD_EIS
+endif
 
 LOCAL_CFLAGS += -Werror -Wno-error=deprecated-declarations -Wall
 LOCAL_CLANG := true

@@ -33,6 +33,11 @@ LOCAL_SHARED_LIBRARIES:= \
 LOCAL_CFLAGS += -Wno-multichar -Werror -Wall
 LOCAL_CLANG := true
 
+#sp9860g support 1920*1080 p30
+ifeq ($(strip $(TARGET_BOARD_PLATFORM)),sp9860g)
+    LOCAL_CFLAGS += -DWIFIDISPLAY_PLATFORM_SP9860G
+endif
+
 LOCAL_MODULE:= libstagefright_wfd
 
 LOCAL_MODULE_TAGS:= optional

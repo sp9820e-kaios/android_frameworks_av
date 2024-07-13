@@ -45,6 +45,7 @@ struct Surface;
 struct MediaCodec : public AHandler {
     enum ConfigureFlags {
         CONFIGURE_FLAG_ENCODE   = 1,
+        CONFIGURE_FLAG_THUMBNAIL   = 2,
     };
 
     enum BufferFlags {
@@ -169,6 +170,10 @@ struct MediaCodec : public AHandler {
     // of frames that were rendered.
     static size_t CreateFramesRenderedMessage(
             std::list<FrameRenderTracker::Info> done, sp<AMessage> &msg);
+
+    // This is used to get graphicBuffer with the index obtained from
+    // calling dequeueOutputBuffer()
+    sp<GraphicBuffer> getOutputGraphicBufferFromIndex(size_t index);
 
 protected:
     virtual ~MediaCodec();

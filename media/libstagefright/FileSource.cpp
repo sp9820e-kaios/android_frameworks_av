@@ -32,6 +32,7 @@ FileSource::FileSource(const char *filename)
     : mFd(-1),
       mOffset(0),
       mLength(-1),
+      mContainerBasedDrmLength(-1),
       mDecryptHandle(NULL),
       mDrmManagerClient(NULL),
       mDrmBufOffset(0),
@@ -51,6 +52,7 @@ FileSource::FileSource(int fd, int64_t offset, int64_t length)
     : mFd(fd),
       mOffset(offset),
       mLength(length),
+      mContainerBasedDrmLength(-1),
       mDecryptHandle(NULL),
       mDrmManagerClient(NULL),
       mDrmBufOffset(0),
@@ -87,8 +89,12 @@ FileSource::~FileSource() {
 status_t FileSource::initCheck() const {
     return mFd >= 0 ? OK : NO_INIT;
 }
-
+void FileSource::getFd(int *fd,int64_t *offset) {
+    *fd = mFd;
+    *offset = mOffset;
+}
 ssize_t FileSource::readAt(off64_t offset, void *data, size_t size) {
+
     if (mFd < 0) {
         return NO_INIT;
     }
@@ -119,6 +125,7 @@ ssize_t FileSource::readAt(off64_t offset, void *data, size_t size) {
     }
 }
 
+#define GET_SIZE_MAGIC 0xDEADBEEF
 status_t FileSource::getSize(off64_t *size) {
     Mutex::Autolock autoLock(mLock);
 
@@ -126,8 +133,25 @@ status_t FileSource::getSize(off64_t *size) {
         return NO_INIT;
     }
 
-    *size = mLength;
-
+    if (mDecryptHandle != NULL && DecryptApiType::CONTAINER_BASED
+            == mDecryptHandle->decryptApiType)
+    {
+        if(mContainerBasedDrmLength == -1)
+        {
+            ALOGE("FileSource getSize !");
+            char tmp;
+	        *size = mDrmManagerClient->pread(mDecryptHandle, &tmp, 1, GET_SIZE_MAGIC);
+            mContainerBasedDrmLength = *size;
+        }
+        else
+        {
+            *size = mContainerBasedDrmLength;
+        }
+	}
+    else
+    {
+        *size = mLength;
+    }
     return OK;
 }
 

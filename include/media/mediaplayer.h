@@ -208,7 +208,7 @@ public:
     ~MediaPlayer();
             void            died();
             void            disconnect();
-
+            void            setNeedConsume(bool needConsume);
             status_t        setDataSource(
                     const sp<IMediaHTTPService> &httpService,
                     const char *url,

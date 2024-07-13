@@ -1648,6 +1648,10 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
                 mFlags |= kFlagIsEncoder;
             }
 
+            if (flags & CONFIGURE_FLAG_THUMBNAIL) {
+                format->setInt32("thumbnail", true);
+            }
+
             extractCSD(format);
 
             mCodec->initiateConfigureComponent(format);
@@ -2731,6 +2735,31 @@ status_t MediaCodec::amendOutputFormatWithCodecSpecificData(
         if (csdIndex != 2) {
             return ERROR_MALFORMED;
         }
+    }else if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_HEVC)) {
+        // Codec specific data should be VPS ,SPS and PPS in a single buffer,
+        // each prefixed by a startcode (0x00 0x00 0x00 0x01).
+        // We separate them and put them into the output format
+        // under the keys "csd-0","csd-1", "csd-2".
+
+        unsigned csdIndex = 0;
+
+        const uint8_t *data = buffer->data();
+        size_t size = buffer->size();
+        const uint8_t *nalStart;
+        size_t nalSize;
+
+        while (getNextNALUnit(&data, &size, &nalStart, &nalSize, true) == OK) {
+            sp<ABuffer> csd = new ABuffer(nalSize + 4);
+            memcpy(csd->data(), "\x00\x00\x00\x01", 4);
+            memcpy(csd->data() + 4, nalStart, nalSize);
+            mOutputFormat->setBuffer(
+                    AStringPrintf("csd-%u", csdIndex).c_str(), csd);
+            ++csdIndex;
+        }
+
+        if (csdIndex != 3) {
+            return ERROR_MALFORMED;
+        }
     } else {
         // For everything else we just stash the codec specific data into
         // the output format as a single piece of csd under "csd-0".
@@ -2762,6 +2791,14 @@ void MediaCodec::updateBatteryStat() {
 
         mBatteryStatNotified = false;
     }
+}
+sp<GraphicBuffer> MediaCodec::getOutputGraphicBufferFromIndex(size_t index) {
+
+    if (mState != STARTED || index >= mPortBuffers[kPortIndexOutput].size()) {
+        return NULL;
+    }
+
+    return ((ACodec*)mCodec.get())->mBuffers[kPortIndexOutput].editItemAt(index).mGraphicBuffer;
 }
 
 }  // namespace android

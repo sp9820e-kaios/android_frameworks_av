@@ -191,7 +191,8 @@ NuPlayer::NuPlayer(pid_t pid)
       mSourceStarted(false),
       mPaused(false),
       mPausedByClient(false),
-      mPausedForBuffering(false) {
+      mPausedForBuffering(false),
+      mNotifyErrorComplete(false) {
     clearFlushComplete();
 }
 
@@ -409,6 +410,12 @@ void NuPlayer::resetAsync() {
     }
 
     (new AMessage(kWhatReset, this))->post();
+}
+
+void NuPlayer::setNeedConsume(bool needConsume)
+{
+    ALOGI("setNeedConsume %d", needConsume);
+    mSource->setNeedConsume(needConsume);
 }
 
 void NuPlayer::seekToAsync(int64_t seekTimeUs, bool needNotify) {
@@ -632,8 +639,8 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
 
             ALOGD("onSetVideoSurface(%p, %s video decoder)",
                     surface.get(),
-                    (mSource != NULL && mStarted && mSource->getFormat(false /* audio */) != NULL
-                            && mVideoDecoder != NULL) ? "have" : "no");
+                   (mSource != NULL && mStarted && mSource->getFormat(false /* audio */) != NULL
+                                       && mVideoDecoder != NULL) ? "have" : "no");
 
             // Need to check mStarted before calling mSource->getFormat because NuPlayer might
             // be in preparing state and it could take long time.
@@ -1019,6 +1026,7 @@ void NuPlayer::onMessageReceived(const sp<AMessage> &msg) {
                         break;                    // Finish anyways.
                 }
                 notifyListener(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, err);
+                mNotifyErrorComplete= true;
             } else {
                 ALOGV("Unhandled decoder notification %d '%c%c%c%c'.",
                       what,
@@ -1490,6 +1498,10 @@ void NuPlayer::determineAudioModeChange() {
 status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     // The audio decoder could be cleared by tear down. If still in shut down
     // process, no need to create a new audio decoder.
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    int32_t btspersample = 0;
+#endif
+
     if (*decoder != NULL || (audio && mFlushingAudio == SHUT_DOWN)) {
         return OK;
     }
@@ -1499,6 +1511,17 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     if (format == NULL) {
         return -EWOULDBLOCK;
     }
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    sp<MetaData> meta = mSource->getFormatMeta(audio);
+
+    if (meta == NULL) {
+    ALOGE("meta is NULL");
+    } else {
+    meta->findInt32(kkBitsPerSample, &btspersample);
+    format->setInt32("bitspersample",btspersample);
+    }
+#endif
 
     format->setInt32("priority", 0 /* realtime */);
 
@@ -1526,6 +1549,13 @@ status_t NuPlayer::instantiateDecoder(bool audio, sp<DecoderBase> *decoder) {
     }
 
     if (audio) {
+        /* SPRD: Add ignore the absence of an audio decoder for QCELP @ { */
+        AString mime;
+        CHECK(format->findString("mime", &mime));
+        if (!strcasecmp(mime.c_str(),MEDIA_MIMETYPE_AUDIO_QCELP)) {
+             return OK;
+        }
+        /* @ } */
         sp<AMessage> notify = new AMessage(kWhatAudioNotify, this);
         ++mAudioDecoderGeneration;
         notify->setInt32("generation", mAudioDecoderGeneration);
@@ -1676,6 +1706,9 @@ void NuPlayer::flushDecoder(bool audio, bool needShutdown) {
 
     // Make sure we don't continue to scan sources until we finish flushing.
     ++mScanSourcesGeneration;
+    if (mNotifyErrorComplete) {
+        mScanSourcesPending = false;
+    }
     if (mScanSourcesPending) {
         mDeferredActions.push_back(
                 new SimpleAction(&NuPlayer::performScanSources));

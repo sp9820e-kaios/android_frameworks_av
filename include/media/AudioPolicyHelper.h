@@ -107,6 +107,10 @@ static void stream_type_to_audio_attributes(audio_stream_type_t streamType,
         attr->content_type = AUDIO_CONTENT_TYPE_SPEECH;
         attr->usage = AUDIO_USAGE_ASSISTANCE_ACCESSIBILITY;
         break;
+    case AUDIO_STREAM_VIB:
+        attr->content_type = AUDIO_CONTENT_TYPE_VIB;
+        attr->usage = AUDIO_USAGE_VIB;
+        break;
     default:
         ALOGE("invalid stream type %d when converting to attributes", streamType);
     }

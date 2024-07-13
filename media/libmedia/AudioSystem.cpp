@@ -922,6 +922,17 @@ status_t AudioSystem::isStreamActive(audio_stream_type_t stream, bool* state, ui
     return NO_ERROR;
 }
 
+/** SPRD: add method isAudioRecording @{ */
+status_t AudioSystem::isAudioRecording(bool* state)
+{
+    const sp<IAudioPolicyService>& aps = AudioSystem::get_audio_policy_service();
+    if (aps == 0) return PERMISSION_DENIED;
+    if (state == NULL) return BAD_VALUE;
+    *state = aps->isAudioRecording();
+    return NO_ERROR;
+}
+/* @} */
+
 status_t AudioSystem::isStreamActiveRemotely(audio_stream_type_t stream, bool* state,
         uint32_t inPastMs)
 {

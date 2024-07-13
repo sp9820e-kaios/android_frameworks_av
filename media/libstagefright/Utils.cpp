@@ -176,6 +176,11 @@ status_t convertMetaDataToMessage(
         if (meta->findInt32(kKeyAACAOT, &aacProfile)) {
             msg->setInt32("aac-profile", aacProfile);
         }
+
+        int32_t blockAlign = 0;
+        if (meta->findInt32(kKeyBlockAlign, &blockAlign)) {
+            msg->setInt32("block-align", blockAlign);
+        }
     }
 
     int32_t maxInputSize;
@@ -211,8 +216,10 @@ status_t convertMetaDataToMessage(
 
         const uint8_t *ptr = (const uint8_t *)data;
 
-        CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
+        if (size < 7 || ptr[0] != 1) {  // configurationVersion == 1
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         uint8_t profile __unused = ptr[1];
         uint8_t level __unused = ptr[3];
 
@@ -238,7 +245,10 @@ status_t convertMetaDataToMessage(
         buffer->setRange(0, 0);
 
         for (size_t i = 0; i < numSeqParameterSets; ++i) {
-            CHECK(size >= 2);
+            if (size < 2) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             size_t length = U16_AT(ptr);
 
             ptr += 2;
@@ -267,13 +277,19 @@ status_t convertMetaDataToMessage(
         }
         buffer->setRange(0, 0);
 
-        CHECK(size >= 1);
+        if (size < 1) {
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         size_t numPictureParameterSets = *ptr;
         ++ptr;
         --size;
 
         for (size_t i = 0; i < numPictureParameterSets; ++i) {
-            CHECK(size >= 2);
+            if (size < 2) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             size_t length = U16_AT(ptr);
 
             ptr += 2;
@@ -297,13 +313,14 @@ status_t convertMetaDataToMessage(
     } else if (meta->findData(kKeyHVCC, &type, &data, &size)) {
         const uint8_t *ptr = (const uint8_t *)data;
 
-        CHECK(size >= 7);
-        CHECK_EQ((unsigned)ptr[0], 1u);  // configurationVersion == 1
+        if (size < 23 || ptr[0] != 1) {  // configurationVersion == 1
+            ALOGE("b/23680780");
+            return BAD_VALUE;
+        }
         uint8_t profile __unused = ptr[1] & 31;
         uint8_t level __unused = ptr[12];
         ptr += 22;
         size -= 22;
-
 
         size_t numofArrays = (char)ptr[0];
         ptr += 1;
@@ -317,17 +334,23 @@ status_t convertMetaDataToMessage(
         buffer->setRange(0, 0);
 
         for (i = 0; i < numofArrays; i++) {
+            if (size < 3) {
+                ALOGE("b/23680780");
+                return BAD_VALUE;
+            }
             ptr += 1;
             size -= 1;
 
             //Num of nals
             size_t numofNals = U16_AT(ptr);
-
             ptr += 2;
             size -= 2;
-
             for (j = 0; j < numofNals; j++) {
-                CHECK(size >= 2);
+                if (size < 2) {
+                    ALOGE("b/23680780");
+                    return BAD_VALUE;
+                }
+
                 size_t length = U16_AT(ptr);
 
                 ptr += 2;
@@ -436,6 +459,137 @@ status_t convertMetaDataToMessage(
     *format = msg;
 
     return OK;
+}
+
+static size_t reassembleHVCC(const sp<ABuffer> &csd0, const sp<ABuffer> &csd1, const sp<ABuffer> csd2, char *hvcc) {
+    //HVEC file format
+    //hvcC
+    //version ,must be 1  ptr[0]
+    //profile, the low 5 bit	  ptr[1]
+    //...
+    //level ptr[12]
+    //...
+    //mNALLengthSize ptr[21]
+    //numofArrays       ptr[22]
+    //arrayIndex          ptr[23]
+    //numofNals           ptr[24 25]
+    //length                 ptr[26 27]  =24
+
+    int arrayIndex = 0xA0;
+    int arrayCount = 3;
+
+    memset(hvcc, 0 , 1024*2);
+    hvcc[0] = 1;        // version
+    hvcc[1] = 0;     // profile low 5 bit
+    hvcc[12] = 0;      // level
+    hvcc[22] = arrayCount; //numofArrays
+    hvcc[21] = 0x0F;          //mNALLengthSize 4 bytes
+    hvcc[23] = arrayIndex; //arrayIndex
+
+    size_t i = 0;
+    int numparams = 0;
+    int lastparamoffset = 0;
+    int hvccidx = 26;
+
+    //csd0,vps
+    do {
+        if (i >= csd0->size() - 4 ||
+                memcmp(csd0->data() + i, "\x00\x00\x00\x01", 4) == 0) {
+            if (i >= csd0->size() - 4) {
+                // there can't be another param here, so use all the rest
+                i = csd0->size();
+            }
+            ALOGV("block at %zu, last was %d", i, lastparamoffset);
+            if (lastparamoffset > 0) {
+                int size = i - lastparamoffset;
+                hvcc[hvccidx++] = size >> 8; //length
+                hvcc[hvccidx++] = size & 0xff;
+                memcpy(hvcc+hvccidx, csd0->data() + lastparamoffset, size);
+                hvccidx += size;
+                numparams++;
+            }
+            i += 4;
+            lastparamoffset = i;
+        } else {
+            i++;
+        }
+    } while(i < csd0->size());
+    ALOGV("csd0 contains %d params", numparams);
+    //numofNals  ptr[24 25]
+    hvcc[24] = numparams >> 8;
+    hvcc[25] = numparams & 0xff;
+
+    //csd-1,sps
+    i = 0;
+    numparams = 0;
+    lastparamoffset = 0;
+//    hvccidx++;
+    hvcc[hvccidx++] = arrayIndex + 1; //arrayIndex A1
+    int numvideoparamsoffset = hvccidx; //numofNals
+    hvccidx += 2;
+
+    do {
+        if (i >= csd1->size() - 4 ||
+                memcmp(csd1->data() + i, "\x00\x00\x00\x01", 4) == 0) {
+            if (i >= csd1->size() - 4) {
+                // there can't be another param here, so use all the rest
+                i = csd1->size();
+            }
+            ALOGV("block at %zu, last was %d", i, lastparamoffset);
+            if (lastparamoffset > 0) {
+                int size = i - lastparamoffset;
+                hvcc[hvccidx++] = size >> 8; //length
+                hvcc[hvccidx++] = size & 0xff;
+                memcpy(hvcc+hvccidx, csd1->data() + lastparamoffset, size);
+                hvccidx += size;
+                numparams++;
+            }
+            i += 4;
+            lastparamoffset = i;
+        } else {
+            i++;
+        }
+    } while(i < csd1->size());
+
+    hvcc[numvideoparamsoffset] = numparams >> 8;
+    hvcc[numvideoparamsoffset+1] = numparams & 0xff;
+
+    //csd-2,pps
+    i = 0;
+    numparams = 0;
+    lastparamoffset = 0;
+  //  hvccidx++;
+    hvcc[hvccidx++] = arrayIndex + 2; //arrayIndex A2
+    int numpicparamsoffset = hvccidx; //numofNals
+    hvccidx += 2;
+
+    do {
+        if (i >= csd2->size() - 4 ||
+                memcmp(csd2->data() + i, "\x00\x00\x00\x01", 4) == 0) {
+            if (i >= csd2->size() - 4) {
+                // there can't be another param here, so use all the rest
+                i = csd2->size();
+            }
+            ALOGV("block at %zu, last was %d", i, lastparamoffset);
+            if (lastparamoffset > 0) {
+                int size = i - lastparamoffset;
+                hvcc[hvccidx++] = size >> 8; //length
+                hvcc[hvccidx++] = size & 0xff;
+                memcpy(hvcc+hvccidx, csd2->data() + lastparamoffset, size);
+                hvccidx += size;
+                numparams++;
+            }
+            i += 4;
+            lastparamoffset = i;
+        } else {
+            i++;
+        }
+    } while(i < csd2->size());
+
+    hvcc[numpicparamsoffset] = numparams >> 8;
+    hvcc[numpicparamsoffset+1] = numparams & 0xff;
+
+    return hvccidx;
 }
 
 static size_t reassembleAVCC(const sp<ABuffer> &csd0, const sp<ABuffer> csd1, char *avcc) {
@@ -657,6 +811,24 @@ void convertMessageToMetaData(const sp<AMessage> &msg, sp<MetaData> &meta) {
                 char avcc[1024]; // that oughta be enough, right?
                 size_t outsize = reassembleAVCC(csd0, csd1, avcc);
                 meta->setData(kKeyAVCC, kKeyAVCC, avcc, outsize);
+            } else {
+                int csd0size = csd0->size();
+                char esds[csd0size + 31];
+                reassembleESDS(csd0, esds);
+                meta->setData(kKeyESDS, kKeyESDS, esds, sizeof(esds));
+            }
+        } else if (mime == MEDIA_MIMETYPE_VIDEO_HEVC) {
+            sp<ABuffer> csd1;
+            sp<ABuffer> csd2;
+            if ((msg->findBuffer("csd-1", &csd1))  && (msg->findBuffer("csd-2", &csd2))){
+                char hvcc[1024*2]; // that oughta be enough, right?
+                size_t outsize = reassembleHVCC(csd0, csd1, csd2, hvcc);
+                meta->setData(kKeyHVCC, kKeyHVCC, hvcc, outsize);
+            } else {
+                int csd0size = csd0->size();
+                char esds[csd0size + 31];
+                reassembleESDS(csd0, esds);
+                meta->setData(kKeyESDS, kKeyESDS, esds, sizeof(esds));
             }
         } else if (mime == MEDIA_MIMETYPE_AUDIO_AAC || mime == MEDIA_MIMETYPE_VIDEO_MPEG4) {
             int csd0size = csd0->size();

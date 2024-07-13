@@ -67,6 +67,8 @@ struct NuPlayer::Source : public AHandler {
 
     virtual void prepareAsync() = 0;
 
+    virtual void setNeedConsume(bool needConsume) {needConsume = true;}
+
     virtual void start() = 0;
     virtual void stop() {}
     virtual void pause() {}

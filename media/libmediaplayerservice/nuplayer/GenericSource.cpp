@@ -62,6 +62,7 @@ NuPlayer::GenericSource::GenericSource(
       mIsSecure(false),
       mIsStreaming(false),
       mUIDValid(uidValid),
+      mNeedConsume(true),
       mUID(uid),
       mFd(-1),
       mDrmManagerClient(NULL),
@@ -70,7 +71,8 @@ NuPlayer::GenericSource::GenericSource(
       mPendingReadBufferTypes(0),
       mBuffering(false),
       mPrepareBuffering(false),
-      mPrevBufferPercentage(-1) {
+      mPrevBufferPercentage(-1),
+      mSeekFlags(0) {
     resetDataSource();
     DataSource::RegisterDefaultSniffers();
 }
@@ -209,8 +211,13 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
         return UNKNOWN_ERROR;
     }
 
+    mSeekFlags = extractor->flags();
+
     for (size_t i = 0; i < numtracks; ++i) {
         sp<MediaSource> track = extractor->getTrack(i);
+        if (track == NULL) {
+            continue;
+        }
 
         sp<MetaData> meta = extractor->getTrackMetaData(i);
 
@@ -253,22 +260,25 @@ status_t NuPlayer::GenericSource::initFromDataSource() {
             }
         }
 
-        if (track != NULL) {
-            mSources.push(track);
-            int64_t durationUs;
-            if (meta->findInt64(kKeyDuration, &durationUs)) {
-                if (durationUs > mDurationUs) {
-                    mDurationUs = durationUs;
-                }
-            }
-
-            int32_t bitrate;
-            if (totalBitrate >= 0 && meta->findInt32(kKeyBitRate, &bitrate)) {
-                totalBitrate += bitrate;
-            } else {
-                totalBitrate = -1;
+        mSources.push(track);
+        int64_t durationUs;
+        if (meta->findInt64(kKeyDuration, &durationUs)) {
+            if (durationUs > mDurationUs) {
+                mDurationUs = durationUs;
             }
         }
+
+        int32_t bitrate;
+        if (totalBitrate >= 0 && meta->findInt32(kKeyBitRate, &bitrate)) {
+            totalBitrate += bitrate;
+        } else {
+            totalBitrate = -1;
+        }
+    }
+
+    if (mSources.size() == 0) {
+        ALOGE("b/23705695");
+        return UNKNOWN_ERROR;
     }
 
     mBitrate = totalBitrate;
@@ -291,17 +301,29 @@ status_t NuPlayer::GenericSource::startSources() {
         return UNKNOWN_ERROR;
     }
 
+    if (mAudioTrack.mSource == NULL && mVideoTrack.mSource == NULL) {
+        ALOGE("No audio and video track!");
+        return UNKNOWN_ERROR;
+    }
+
     return OK;
 }
 
 void NuPlayer::GenericSource::checkDrmStatus(const sp<DataSource>& dataSource) {
     dataSource->getDrmInfo(mDecryptHandle, &mDrmManagerClient);
     if (mDecryptHandle != NULL) {
-        CHECK(mDrmManagerClient);
-        if (RightsStatus::RIGHTS_VALID != mDecryptHandle->status) {
-            sp<AMessage> msg = dupNotify();
-            msg->setInt32("what", kWhatDrmNoLicense);
-            msg->post();
+        if(mNeedConsume)
+        {
+            CHECK(mDrmManagerClient);
+            if (RightsStatus::RIGHTS_VALID != mDecryptHandle->status) {
+                sp<AMessage> msg = dupNotify();
+                msg->setInt32("what", kWhatDrmNoLicense);
+                msg->post();
+            }
+        }
+        else
+        {
+            ALOGI("checkDrmStatus need not consume");
         }
     }
 }
@@ -318,7 +340,7 @@ int64_t NuPlayer::GenericSource::getLastReadPosition() {
 
 status_t NuPlayer::GenericSource::setBuffers(
         bool audio, Vector<MediaBuffer *> &buffers) {
-    if (mIsSecure && !audio) {
+    if (mIsSecure && !audio && mVideoTrack.mSource != NULL) {
         return mVideoTrack.mSource->setBuffers(buffers);
     }
     return INVALID_OPERATION;
@@ -420,7 +442,12 @@ void NuPlayer::GenericSource::onPrepareAsync() {
         }
         notifyVideoSizeChanged(msg);
     }
-
+    /* 0x4 means FLAG_CAN_PAUSE in MediaExtractor */
+    if (mSeekFlags == 0x4) {
+        notifyFlagsChanged(
+             (mIsWidevine ? FLAG_SECURE : 0)
+             | FLAG_CAN_PAUSE);
+    } else {
     notifyFlagsChanged(
             (mIsSecure ? FLAG_SECURE : 0)
             | (mDecryptHandle != NULL ? FLAG_PROTECTED : 0)
@@ -428,7 +455,7 @@ void NuPlayer::GenericSource::onPrepareAsync() {
             | FLAG_CAN_SEEK_BACKWARD
             | FLAG_CAN_SEEK_FORWARD
             | FLAG_CAN_SEEK);
-
+   }
     if (mIsSecure) {
         // secure decoders must be instantiated before starting widevine source
         sp<AMessage> reply = new AMessage(kWhatSecureDecodersInstantiated, this);
@@ -467,9 +494,23 @@ void NuPlayer::GenericSource::finishPrepareAsync() {
 
 void NuPlayer::GenericSource::notifyPreparedAndCleanup(status_t err) {
     if (err != OK) {
-        mDataSource.clear();
-        mCachedSource.clear();
-        mHttpSource.clear();
+        {
+            sp<DataSource> dataSource = mDataSource;
+            sp<NuCachedSource2> cachedSource = mCachedSource;
+            sp<DataSource> httpSource = mHttpSource;
+            {
+                Mutex::Autolock _l(mDisconnectLock);
+                mDataSource.clear();
+                mDecryptHandle = NULL;
+                mDrmManagerClient = NULL;
+                mCachedSource.clear();
+                mHttpSource.clear();
+                /*SPRD modify for 505799 @{*/
+                mDrmManagerClient = NULL;
+                mDecryptHandle = NULL;
+                /*}@*/
+            }
+        }
         mBitrate = -1;
 
         cancelPollBuffering();
@@ -507,6 +548,12 @@ void NuPlayer::GenericSource::stop() {
     }
 }
 
+void NuPlayer::GenericSource::setNeedConsume(bool needConsume)
+{
+    ALOGI("setNeedConsume %d", needConsume);
+    mNeedConsume = needConsume;
+}
+
 void NuPlayer::GenericSource::pause() {
     // nothing to do, just account for DRM playback status
     setDrmPlaybackStatusIfNeeded(Playback::PAUSE, 0);
@@ -522,19 +569,33 @@ void NuPlayer::GenericSource::resume() {
 }
 
 void NuPlayer::GenericSource::disconnect() {
-    if (mDataSource != NULL) {
+    sp<DataSource> dataSource, httpSource;
+    {
+        Mutex::Autolock _l(mDisconnectLock);
+        dataSource = mDataSource;
+        httpSource = mHttpSource;
+    }
+
+    if (dataSource != NULL) {
         // disconnect data source
-        if (mDataSource->flags() & DataSource::kIsCachingDataSource) {
-            static_cast<NuCachedSource2 *>(mDataSource.get())->disconnect();
+        if (dataSource->flags() & DataSource::kIsCachingDataSource) {
+            static_cast<NuCachedSource2 *>(dataSource.get())->disconnect();
         }
-    } else if (mHttpSource != NULL) {
-        static_cast<HTTPBase *>(mHttpSource.get())->disconnect();
+    } else if (httpSource != NULL) {
+        static_cast<HTTPBase *>(httpSource.get())->disconnect();
     }
 }
 
 void NuPlayer::GenericSource::setDrmPlaybackStatusIfNeeded(int playbackStatus, int64_t position) {
     if (mDecryptHandle != NULL) {
-        mDrmManagerClient->setPlaybackStatus(mDecryptHandle, playbackStatus, position);
+        if(mNeedConsume)
+        {
+            mDrmManagerClient->setPlaybackStatus(mDecryptHandle, playbackStatus, position);
+        }
+        else
+        {
+            ALOGI("DRM need not consume playbackStatus %d", playbackStatus);
+        }
     }
     mSubtitleTrack.mPackets = new AnotherPacketSource(NULL);
     mTimedTextTrack.mPackets = new AnotherPacketSource(NULL);
@@ -1495,7 +1556,7 @@ void NuPlayer::GenericSource::readBuffer(
     bool seeking = false;
 
     if (seekTimeUs >= 0) {
-        options.setSeekTo(seekTimeUs, MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC);
+        options.setSeekTo(seekTimeUs, MediaSource::ReadOptions::SEEK_CLOSEST_SYNC);
         seeking = true;
     }
 

@@ -2,6 +2,10 @@ LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
 
+ifeq ($(USE_CUSTOM_AUDIO_POLICY), 1)
+    LOCAL_CFLAGS += -DSPRD_CUSTOM_AUDIO_POLICY
+endif
+
 LOCAL_SRC_FILES:= \
     src/DeviceDescriptor.cpp \
     src/AudioGain.cpp \

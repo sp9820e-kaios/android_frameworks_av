@@ -28,13 +28,23 @@ const char *MEDIA_MIMETYPE_VIDEO_MPEG4 = "video/mp4v-es";
 const char *MEDIA_MIMETYPE_VIDEO_H263 = "video/3gpp";
 const char *MEDIA_MIMETYPE_VIDEO_MPEG2 = "video/mpeg2";
 const char *MEDIA_MIMETYPE_VIDEO_RAW = "video/raw";
+const char *MEDIA_MIMETYPE_VIDEO_MJPG = "video/mjpg";
 
+const char *MEDIA_MIMETYPE_AUDIO_AMR = "audio/amr";
 const char *MEDIA_MIMETYPE_AUDIO_AMR_NB = "audio/3gpp";
 const char *MEDIA_MIMETYPE_AUDIO_AMR_WB = "audio/amr-wb";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG = "audio/mpeg";
+const char *MEDIA_MIMETYPE_AUDIO_MP3 = "audio/mp3";
+const char *MEDIA_MIMETYPE_AUDIO_MPG3 = "audio/mpg3";
+
+const char *MEDIA_MIMETYPE_AUDIO_X_MP3 = "audio/x-mp3";
+const char *MEDIA_MIMETYPE_AUDIO_MPEG3 = "audio/mpeg3";
+
+const char *MEDIA_MIMETYPE_AUDIO_BP3 = "audio/bp3";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I = "audio/mpeg-L1";
 const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II = "audio/mpeg-L2";
 const char *MEDIA_MIMETYPE_AUDIO_MIDI = "audio/midi";
+const char *MEDIA_MIMETYPE_AUDIO_MIDI1= "audio/sp-midi";
 const char *MEDIA_MIMETYPE_AUDIO_AAC = "audio/mp4a-latm";
 const char *MEDIA_MIMETYPE_AUDIO_QCELP = "audio/qcelp";
 const char *MEDIA_MIMETYPE_AUDIO_VORBIS = "audio/vorbis";
@@ -42,7 +52,10 @@ const char *MEDIA_MIMETYPE_AUDIO_OPUS = "audio/opus";
 const char *MEDIA_MIMETYPE_AUDIO_G711_ALAW = "audio/g711-alaw";
 const char *MEDIA_MIMETYPE_AUDIO_G711_MLAW = "audio/g711-mlaw";
 const char *MEDIA_MIMETYPE_AUDIO_RAW = "audio/raw";
+const char *MEDIA_MIMETYPE_AUDIO_IMAADPCM = "audio/ima-adpcm";
 const char *MEDIA_MIMETYPE_AUDIO_FLAC = "audio/flac";
+const char *MEDIA_MIMETYPE_AUDIO_AAC2 = "audio/x-aac";
+const char *MEDIA_MIMETYPE_AUDIO_AAC3 = "audio/aac";
 const char *MEDIA_MIMETYPE_AUDIO_AAC_ADTS = "audio/aac-adts";
 const char *MEDIA_MIMETYPE_AUDIO_MSGSM = "audio/gsm";
 const char *MEDIA_MIMETYPE_AUDIO_AC3 = "audio/ac3";
@@ -50,11 +63,16 @@ const char *MEDIA_MIMETYPE_AUDIO_EAC3 = "audio/eac3";
 
 const char *MEDIA_MIMETYPE_CONTAINER_MPEG4 = "video/mp4";
 const char *MEDIA_MIMETYPE_CONTAINER_WAV = "audio/x-wav";
+const char *MEDIA_MIMETYPE_CONTAINER_WAV2 = "audio/wav";
 const char *MEDIA_MIMETYPE_CONTAINER_OGG = "application/ogg";
+const char *MEDIA_MIMETYPE_CONTAINER_OGG2 = "audio/ogg";
 const char *MEDIA_MIMETYPE_CONTAINER_MATROSKA = "video/x-matroska";
+const char *MEDIA_MIMETYPE_CONTAINER_WEBM = "video/webm";
 const char *MEDIA_MIMETYPE_CONTAINER_MPEG2TS = "video/mp2ts";
 const char *MEDIA_MIMETYPE_CONTAINER_AVI = "video/avi";
+const char *MEDIA_MIMETYPE_CONTAINER_MSVIDEO = "video/x-msvideo";
 const char *MEDIA_MIMETYPE_CONTAINER_MPEG2PS = "video/mp2p";
+const char *MEDIA_MIMETYPE_CONTAINER_FLV = "video/flv";
 
 const char *MEDIA_MIMETYPE_CONTAINER_WVM = "video/wvm";
 

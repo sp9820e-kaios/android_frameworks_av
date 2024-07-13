@@ -14,6 +14,7 @@ LOCAL_SRC_FILES:=                       \
         NuPlayerStreamListener.cpp      \
         RTSPSource.cpp                  \
         StreamingSource.cpp             \
+        avc_utils_sprd.cpp              \
 
 LOCAL_C_INCLUDES := \
 	$(TOP)/frameworks/av/media/libstagefright                     \
@@ -25,6 +26,10 @@ LOCAL_C_INCLUDES := \
 	$(TOP)/frameworks/av/media/libmediaplayerservice              \
 	$(TOP)/frameworks/native/include/media/openmax
 
+ifeq ($(AUDIO_24BITS_OUTPUT), 1)
+    LOCAL_CFLAGS += -DAUDIO_24BIT_PLAYBACK_SUPPORT
+endif
+
 LOCAL_CFLAGS += -Werror -Wall
 
 # enable experiments only in userdebug and eng builds
@@ -33,6 +38,10 @@ LOCAL_CFLAGS += -DENABLE_STAGEFRIGHT_EXPERIMENTS
 endif
 
 LOCAL_CLANG := true
+
+ifeq ($(strip $(BOARD_VSP_SUPPORT_1080I)),true)
+LOCAL_CFLAGS += -DCONFIG_VSP_SUPPORT_1080I
+endif
 
 LOCAL_MODULE:= libstagefright_nuplayer
 

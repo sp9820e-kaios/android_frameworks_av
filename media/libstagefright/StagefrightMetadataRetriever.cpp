@@ -46,7 +46,7 @@
 
 namespace android {
 
-static const int64_t kBufferTimeOutUs = 30000ll; // 30 msec
+static const int64_t kBufferTimeOutUs = 100000ll; // 100 msec
 static const size_t kRetryCount = 20; // must be >0
 
 StagefrightMetadataRetriever::StagefrightMetadataRetriever()
@@ -146,7 +146,10 @@ static VideoFrame *extractVideoFrame(
     sp<MetaData> format = source->getFormat();
 
     sp<AMessage> videoFormat;
-    convertMetaDataToMessage(trackMeta, &videoFormat);
+    if (convertMetaDataToMessage(trackMeta, &videoFormat) != OK) {
+        ALOGW("Failed to convert meta data to message");
+        return NULL;
+    }
 
     // TODO: Use Flexible color instead
     videoFormat->setInt32("color-format", OMX_COLOR_FormatYUV420Planar);
@@ -162,7 +165,8 @@ static VideoFrame *extractVideoFrame(
         return NULL;
     }
 
-    err = decoder->configure(videoFormat, NULL /* surface */, NULL /* crypto */, 0 /* flags */);
+    err = decoder->configure(videoFormat, NULL /* surface */, NULL /* crypto */,
+                                            MediaCodec::CONFIGURE_FLAG_THUMBNAIL/* flags */);
     if (err != OK) {
         ALOGW("configure returned error %d (%s)", err, asString(err));
         decoder->release();

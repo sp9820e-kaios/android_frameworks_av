@@ -163,6 +163,10 @@ Camera2Client::~Camera2Client() {
 }
 
 status_t Camera2Client::dump(int fd, const Vector<String16>& args) {
+    return BasicClient::dump(fd, args);
+}
+
+status_t Camera2Client::dumpClient(int fd, const Vector<String16>& args) {
     String8 result;
     result.appendFormat("Client2[%d] (%p) PID: %d, dump:\n", mCameraId,
             (getRemoteCallback() != NULL ?
@@ -1040,7 +1044,8 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
     }
 
     if (!restart) {
-        mCameraService->playSound(CameraService::SOUND_RECORDING);
+        //mCameraService->playSound(CameraService::SOUND_RECORDING);
+        playSound(params);
         mStreamingProcessor->updateRecordingRequest(params);
         if (res != OK) {
             ALOGE("%s: Camera %d: Unable to update recording request: %s (%d)",
@@ -1212,7 +1217,8 @@ void Camera2Client::stopRecording() {
             return;
     };
 
-    mCameraService->playSound(CameraService::SOUND_RECORDING);
+    //mCameraService->playSound(CameraService::SOUND_RECORDING);
+    playSound(l.mParameters);
 
     // Remove recording stream to prevent it from slowing down takePicture later
     if (!l.mParameters.recordingHint && l.mParameters.isJpegSizeOverridden()) {
@@ -1638,8 +1644,16 @@ status_t Camera2Client::commandEnableShutterSoundL(bool enable) {
 }
 
 status_t Camera2Client::commandPlayRecordingSoundL() {
-    mCameraService->playSound(CameraService::SOUND_RECORDING);
+    //mCameraService->playSound(CameraService::SOUND_RECORDING);
+    SharedParameters::Lock l(mParameters);
+    playSound(l.mParameters);
     return OK;
+}
+void Camera2Client::playSound(Parameters &params) {
+    ALOGV("%s: Camera2Client  %d",  __FUNCTION__, params.playShutterSound);
+    if (params.playShutterSound) {
+        mCameraService->playSound(CameraService::SOUND_RECORDING);
+    }
 }
 
 status_t Camera2Client::commandStartFaceDetectionL(int /*type*/) {

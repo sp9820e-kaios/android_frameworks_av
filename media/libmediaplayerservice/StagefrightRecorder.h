@@ -122,6 +122,7 @@ private:
     MediaProfiles *mEncoderProfiles;
 
     bool mStarted;
+    bool mPause; //SPRD: add
     // Needed when GLFrames are encoded.
     // An <IGraphicBufferProducer> pointer
     // will be sent to the client side using which the

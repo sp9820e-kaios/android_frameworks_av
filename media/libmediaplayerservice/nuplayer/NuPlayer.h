@@ -39,6 +39,8 @@ struct NuPlayer : public AHandler {
 
     void setDriver(const wp<NuPlayerDriver> &driver);
 
+    void setNeedConsume(bool needConsume);
+
     void setDataSourceAsync(const sp<IStreamSource> &source);
 
     void setDataSourceAsync(
@@ -209,7 +211,7 @@ private:
 
     // Pause state as requested by source (internally) due to buffering
     bool mPausedForBuffering;
-
+    bool mNotifyErrorComplete;
     inline const sp<DecoderBase> &getDecoder(bool audio) {
         return audio ? mAudioDecoder : mVideoDecoder;
     }

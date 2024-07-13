@@ -56,6 +56,10 @@
 
 #include "include/avc_utils.h"
 
+#ifdef CONFIG_VSP_SUPPORT_1080I
+#include "include/avc_utils_sprd.h"
+#endif
+
 namespace android {
 
 // Treat time out as an error if we have not received any output
@@ -102,11 +106,17 @@ static sp<MediaSource> InstantiateSoftwareEncoder(
 #undef FACTORY_CREATE_ENCODER
 #undef FACTORY_REF
 
+#ifdef DUMP_DEBUG
 #define CODEC_LOGI(x, ...) ALOGI("[%s] " x, mComponentName, ##__VA_ARGS__)
 #define CODEC_LOGV(x, ...) ALOGV("[%s] " x, mComponentName, ##__VA_ARGS__)
 #define CODEC_LOGW(x, ...) ALOGW("[%s] " x, mComponentName, ##__VA_ARGS__)
 #define CODEC_LOGE(x, ...) ALOGE("[%s] " x, mComponentName, ##__VA_ARGS__)
-
+#else
+#define CODEC_LOGI(x, ...)
+#define CODEC_LOGV(x, ...)
+#define CODEC_LOGW(x, ...)
+#define CODEC_LOGE(x, ...)
+#endif
 struct OMXCodecObserver : public BnOMXObserver {
     OMXCodecObserver() {
     }
@@ -207,7 +217,6 @@ void OMXCodec::findMatchingCodecs(
     if (list == NULL) {
         return;
     }
-
     size_t index = 0;
     for (;;) {
         ssize_t matchIndex =
@@ -222,6 +231,7 @@ void OMXCodec::findMatchingCodecs(
         const sp<MediaCodecInfo> info = list->getCodecInfo(matchIndex);
         CHECK(info != NULL);
         const char *componentName = info->getCodecName();
+        ALOGI("findMatchingCodecs, componentName: %s, matchIndex: %zd, flag: 0x%x", componentName, matchIndex, flags);
 
         // If a specific codec is requested, skip the non-matching ones.
         if (matchComponentName && strcmp(componentName, matchComponentName)) {
@@ -349,21 +359,6 @@ sp<MediaSource> OMXCodec::Create(
 
         ALOGV("Attempting to allocate OMX node '%s'", componentName);
 
-        if (!createEncoder
-                && (quirks & kOutputBuffersAreUnreadable)
-                && (flags & kClientNeedsFramebuffer)) {
-            if (strncmp(componentName, "OMX.SEC.", 8)) {
-                // For OMX.SEC.* decoders we can enable a special mode that
-                // gives the client access to the framebuffer contents.
-
-                ALOGW("Component '%s' does not give the client access to "
-                     "the framebuffer contents. Skipping.",
-                     componentName);
-
-                continue;
-            }
-        }
-
         status_t err = omx->allocateNode(componentName, observer, &node);
         if (err == OK) {
             ALOGV("Successfully allocated OMX node '%s'", componentName);
@@ -479,6 +474,12 @@ status_t OMXCodec::parseAVCCodecSpecificData(
         if (size < length) {
             return ERROR_MALFORMED;
         }
+#ifdef CONFIG_VSP_SUPPORT_1080I
+        if (isInterlacedSequence(ptr, size) == 1 &&  strncmp(mComponentName, "OMX.vpu.", 8)) {
+            CODEC_LOGI("interlace avc stream, change to vpu decoder");
+            return UNKNOWN_ERROR;
+        }
+#endif
 
         addCodecSpecificData(ptr, length);
 
@@ -533,6 +534,13 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
             size_t codec_specific_data_size;
             esds.getCodecSpecificInfo(
                     &codec_specific_data, &codec_specific_data_size);
+
+#ifdef CONFIG_VSP_SUPPORT_1080I
+            if (!strncmp(mComponentName, "OMX.sprd.h264.decoder", 21)) {
+                CODEC_LOGI("change to vpu decoder");
+                return UNKNOWN_ERROR;
+            }
+#endif
 
             addCodecSpecificData(
                     codec_specific_data, codec_specific_data_size);
@@ -617,7 +625,18 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
                     sampleRate,
                     numChannels);
         }
-    } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AC3, mMIME)) {
+    } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II, mMIME)) {
+        int32_t numChannels, sampleRate;
+        if (meta->findInt32(kKeyChannelCount, &numChannels)
+                && meta->findInt32(kKeySampleRate, &sampleRate)) {
+            // Since we did not always check for these, leave them optional
+            // and have the decoder figure it all out.
+            setRawAudioFormat(
+                    mIsEncoder ? kPortIndexInput : kPortIndexOutput,
+                    sampleRate,
+                    numChannels);
+        }
+    }else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_AC3, mMIME)) {
         int32_t numChannels;
         int32_t sampleRate;
         CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
@@ -671,35 +690,6 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
     }
 
     initOutputFormat(meta);
-
-    if ((mFlags & kClientNeedsFramebuffer)
-            && !strncmp(mComponentName, "OMX.SEC.", 8)) {
-        // This appears to no longer be needed???
-
-        OMX_INDEXTYPE index;
-
-        status_t err =
-            mOMX->getExtensionIndex(
-                    mNode,
-                    "OMX.SEC.index.ThumbnailMode",
-                    &index);
-
-        if (err != OK) {
-            return err;
-        }
-
-        OMX_BOOL enable = OMX_TRUE;
-        err = mOMX->setConfig(mNode, index, &enable, sizeof(enable));
-
-        if (err != OK) {
-            CODEC_LOGE("setConfig('OMX.SEC.index.ThumbnailMode') "
-                       "returned error 0x%08x", err);
-
-            return err;
-        }
-
-        mQuirks &= ~kOutputBuffersAreUnreadable;
-    }
 
     if (mNativeWindow != NULL
         && !mIsEncoder
@@ -1304,6 +1294,8 @@ status_t OMXCodec::setVideoOutputFormat(
         compressionFormat = OMX_VIDEO_CodingVP9;
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG2, mime)) {
         compressionFormat = OMX_VIDEO_CodingMPEG2;
+    } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MJPG, mime)) {
+        compressionFormat = OMX_VIDEO_CodingMJPEG;
     } else {
         ALOGE("Not a supported video mime type: %s", mime);
         CHECK(!"Should not be here. Not a supported video mime type.");
@@ -2083,8 +2075,10 @@ void OMXCodec::on_message(const omx_message &msg) {
         case omx_message::FILL_BUFFER_DONE:
         {
             IOMX::buffer_id buffer = msg.u.extended_buffer_data.buffer;
-            OMX_U32 flags = msg.u.extended_buffer_data.flags;
 
+#ifdef DUMP_DEBUG
+            OMX_U32 flags = msg.u.extended_buffer_data.flags;
+#endif
             CODEC_LOGV("FILL_BUFFER_DONE(buffer: %u, size: %u, flags: 0x%08x, timestamp: %lld us (%.2f secs))",
                  buffer,
                  msg.u.extended_buffer_data.range_length,
@@ -4251,11 +4245,17 @@ void OMXCodec::initOutputFormat(const sp<MetaData> &inputFormat) {
 }
 
 status_t OMXCodec::pause() {
+/*
     Mutex::Autolock autoLock(mLock);
 
     mPaused = true;
 
     return OK;
+  */
+  //merge KAIOS_PATCH for task 4061118
+// don't support pause,
+// see https://bugzilla.mozilla.org/show_bug.cgi?id=919590#c2
+  return ERROR_UNSUPPORTED;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

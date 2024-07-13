@@ -395,6 +395,11 @@ status_t NuPlayerDriver::seekTo(int msec) {
 
     int64_t seekTimeUs = msec * 1000ll;
 
+    // for bug 388263, 1ms just make sure seekTimeUs < mDurationUs, reason is in bug 388263
+    //if (seekTimeUs + 1000 >= mDurationUs) {
+       // seekTimeUs = mDurationUs - 1000;
+   //}
+
     switch (mState) {
         case STATE_PREPARED:
         case STATE_STOPPED_AND_PREPARED:
@@ -455,6 +460,12 @@ status_t NuPlayerDriver::getDuration(int *msec) {
     *msec = (mDurationUs + 500ll) / 1000;
 
     return OK;
+}
+
+void NuPlayerDriver::setNeedConsume(bool needConsume)
+{
+    ALOGE("melvin needConsum %d", needConsume);
+    mPlayer->setNeedConsume(needConsume);
 }
 
 status_t NuPlayerDriver::reset() {

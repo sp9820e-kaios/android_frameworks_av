@@ -123,7 +123,8 @@ AMRExtractor::AMRExtractor(const sp<DataSource> &source)
         return;
     }
 
-    mIsWide = (mimeType == MEDIA_MIMETYPE_AUDIO_AMR_WB);
+    mIsWide = (mimeType == MEDIA_MIMETYPE_AUDIO_AMR_WB) ||
+		      (mimeType == MEDIA_MIMETYPE_AUDIO_AMR);
 
     mMeta = new MetaData;
     mMeta->setCString(
@@ -139,6 +140,7 @@ AMRExtractor::AMRExtractor(const sp<DataSource> &source)
     int64_t duration = 0;
 
     if (mDataSource->getSize(&streamSize) == OK) {
+		ALOGV(LOG_TAG" streamsize = %ld", (long)streamSize);
          while (offset < streamSize) {
             if (getFrameSizeByOffset(source, offset, mIsWide, &frameSize) != OK) {
                 return;

@@ -1102,6 +1102,10 @@ int Effect_setConfig(EffectContext *pContext, effect_config_t *pConfig){
         SampleRate = LVM_FS_8000;
         pContext->pBundledContext->SamplesPerSecond = 8000*2; // 2 secs Stereo
         break;
+    case 11025:
+        SampleRate = LVM_FS_11025;
+        pContext->pBundledContext->SamplesPerSecond = 11025*2; // 2 secs Stereo
+        break;
     case 16000:
         SampleRate = LVM_FS_16000;
         pContext->pBundledContext->SamplesPerSecond = 16000*2; // 2 secs Stereo
@@ -3091,7 +3095,10 @@ int Effect_command(effect_handle_t  self,
             //ALOGV("\tEffect_command cmdCode Case: EFFECT_CMD_GET_PARAM start");
 
             effect_param_t *p = (effect_param_t *)pCmdData;
-
+            if (SIZE_MAX - sizeof(effect_param_t) < (size_t)p->psize) {
+                android_errorWriteLog(0x534e4554, "26347509");
+                return -EINVAL;
+            }
             if (pCmdData == NULL || cmdSize < sizeof(effect_param_t) ||
                     cmdSize < (sizeof(effect_param_t) + p->psize) ||
                     pReplyData == NULL || replySize == NULL ||

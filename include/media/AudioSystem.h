@@ -72,6 +72,11 @@ public:
     // returns true in *state if tracks are active on the specified stream or have been active
     // in the past inPastMs milliseconds
     static status_t isStreamActive(audio_stream_type_t stream, bool *state, uint32_t inPastMs);
+    /** SPRD: add method isAudioRecording @{
+    *return true if audio recording is going
+    */
+    static status_t isAudioRecording(bool* state);
+    /* @} */
     // returns true in *state if tracks are active for what qualifies as remote playback
     // on the specified stream or have been active in the past inPastMs milliseconds. Remote
     // playback isn't mutually exclusive with local playback.

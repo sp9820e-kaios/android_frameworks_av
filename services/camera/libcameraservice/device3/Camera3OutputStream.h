@@ -40,7 +40,8 @@ class Camera3OutputStream :
      */
     Camera3OutputStream(int id, sp<Surface> consumer,
             uint32_t width, uint32_t height, int format,
-            android_dataspace dataSpace, camera3_stream_rotation_t rotation);
+            android_dataspace dataSpace, camera3_stream_rotation_t rotation,
+            nsecs_t timestampOffset);
 
     /**
      * Set up a stream for formats that have a variable buffer size for the same
@@ -48,7 +49,8 @@ class Camera3OutputStream :
      */
     Camera3OutputStream(int id, sp<Surface> consumer,
             uint32_t width, uint32_t height, size_t maxSize, int format,
-            android_dataspace dataSpace, camera3_stream_rotation_t rotation);
+            android_dataspace dataSpace, camera3_stream_rotation_t rotation,
+            nsecs_t timestampOffset);
 
     virtual ~Camera3OutputStream();
 
@@ -63,6 +65,15 @@ class Camera3OutputStream :
      * HAL_TRANSFORM_* / NATIVE_WINDOW_TRANSFORM_* constants.
      */
     status_t         setTransform(int transform);
+
+    /**
+     * Return if this output stream is for video encoding.
+     */
+    bool isVideoStream() const;
+    /**
+     * Return if this output stream is consumed by hardware composer.
+     */
+    bool isConsumedByHWComposer() const;
 
   protected:
     Camera3OutputStream(int id, camera3_stream_type_t type,
@@ -91,6 +102,13 @@ class Camera3OutputStream :
 
     // Name of Surface consumer
     String8           mConsumerName;
+    /**
+     * Timestamp offset for video and hardware composer consumed streams
+     */
+    nsecs_t mTimestampOffset;
+
+    // Whether consumer assumes MONOTONIC timestamp
+    bool mUseMonoTimestamp;
 
     /**
      * Internal Camera3Stream interface

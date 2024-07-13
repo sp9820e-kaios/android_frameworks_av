@@ -21,7 +21,7 @@
 #include <utils/KeyedVector.h>
 #include <utils/RefBase.h>
 #include <utils/Errors.h>
-
+#include<utils/Mutex.h>
 namespace android {
 
 
@@ -66,6 +66,8 @@ private:
      * Maximum memory allocated to audio effects in KB
      */
     static const uint32_t MAX_EFFECTS_MEMORY = 512;
+
+    Mutex mlock;
 };
 
 }; // namespace android

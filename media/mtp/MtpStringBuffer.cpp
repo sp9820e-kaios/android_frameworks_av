@@ -17,6 +17,7 @@
 #define LOG_TAG "MtpStringBuffer"
 
 #include <string.h>
+#include <ctype.h>
 
 #include "MtpDataPacket.h"
 #include "MtpStringBuffer.h"
@@ -178,6 +179,32 @@ void MtpStringBuffer::writeToPacket(MtpDataPacket* packet) const {
     // only terminate with zero if string is not empty
     if (count > 0)
         packet->putUInt16(0);
+}
+
+void MtpStringBuffer::trim() {
+    size_t max_count = MTP_STRING_MAX_CHARACTER_NUMBER * 3 + 1;
+    uint8_t buf[MTP_STRING_MAX_CHARACTER_NUMBER * 3 + 1] = {0};
+    size_t size;
+    uint8_t* start = mBuffer;
+    uint8_t *end;
+    const uint8_t *sc;
+
+    for (sc = start; max_count-- && *sc != '\0'; ++sc)
+        /* nothing */;
+    size = sc - start;
+
+    if (size) {
+        end = start + size - 1;
+        while (end >= start && isspace(*end))
+            end--;
+        *(end + 1) = '\0';
+
+        while (isspace(*start) && start <= end)
+            ++start;
+
+        memcpy(buf, (const char*)(start), end - start + 1);
+        set((const char*)buf);
+    }
 }
 
 }  // namespace android

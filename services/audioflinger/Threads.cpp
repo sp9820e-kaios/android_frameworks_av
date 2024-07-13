@@ -71,6 +71,7 @@
 #include <cpustats/CentralTendencyStatistics.h>
 #include <cpustats/ThreadCpuUsage.h>
 #endif
+#include <hardware_legacy/power.h>
 
 // ----------------------------------------------------------------------------
 
@@ -899,6 +900,7 @@ String16 AudioFlinger::ThreadBase::getWakeLockTag()
 
 void AudioFlinger::ThreadBase::acquireWakeLock_l(int uid)
 {
+#if 0
     getPowerManager_l();
     if (mPowerManager != 0) {
         sp<IBinder> binder = new BBinder();
@@ -922,6 +924,9 @@ void AudioFlinger::ThreadBase::acquireWakeLock_l(int uid)
         }
         ALOGV("acquireWakeLock_l() %s status %d", mThreadName, status);
     }
+#else
+    acquire_wake_lock(PARTIAL_WAKE_LOCK, mThreadName);
+#endif
 }
 
 void AudioFlinger::ThreadBase::releaseWakeLock()
@@ -932,6 +937,7 @@ void AudioFlinger::ThreadBase::releaseWakeLock()
 
 void AudioFlinger::ThreadBase::releaseWakeLock_l()
 {
+#if 0
     if (mWakeLockToken != 0) {
         ALOGV("releaseWakeLock_l() %s", mThreadName);
         if (mPowerManager != 0) {
@@ -940,6 +946,9 @@ void AudioFlinger::ThreadBase::releaseWakeLock_l()
         }
         mWakeLockToken.clear();
     }
+#else
+    release_wake_lock(mThreadName);
+#endif
 }
 
 void AudioFlinger::ThreadBase::updateWakeLockUids(const SortedVector<int> &uids) {
@@ -3941,9 +3950,22 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::MixerThread::prepareTrac
                     track->setPaused();
                 }
             } else {
-
                 // read original volumes with volume control
                 float typeVolume = mStreamTypes[track->streamType()].volume;
+
+                /*Begin SPRD modify for Mute Codec*/
+                // It is special case to close codec AMP for power consumption.
+                // set codec mute via hal. only STREAM_MUSIC and only one active track to be handled.
+                if (mOutput && mOutput->hwDev()) {
+                    if (mOutput->hwDev()->set_master_mute) {
+                        if (count == 1 && track->streamType() == AUDIO_STREAM_MUSIC)
+                            mOutput->hwDev()->set_master_mute(mOutput->hwDev(), typeVolume == 0.0);
+                        else
+                            mOutput->hwDev()->set_master_mute(mOutput->hwDev(), false);
+                    }
+                }
+                /*Begin SPRD modify for Mute Codec*/
+
                 float v = masterVolume * typeVolume;
                 AudioTrackServerProxy *proxy = track->mAudioTrackServerProxy;
                 gain_minifloat_packed_t vlr = proxy->getVolumeLR();
@@ -5051,7 +5073,13 @@ AudioFlinger::PlaybackThread::mixer_state AudioFlinger::OffloadThread::prepareTr
         // but as we only care about the transition phase between two tracks on a
         // direct output, it is not a problem to ignore the underrun case.
         sp<Track> l = mLatestActiveTrack.promote();
-        bool last = l.get() == track;
+        bool last =false;
+
+        if(1==count){
+            last = true;
+        }else{
+            last = l.get() == track;
+        }
 
         if (track->isInvalid()) {
             ALOGW("An invalidated track shouldn't be in active list");
@@ -6926,6 +6954,7 @@ void AudioFlinger::RecordThread::readInputParameters_l()
     mRsmpInFrames = mFrameCount * 7;
     mRsmpInFramesP2 = roundup(mRsmpInFrames);
     free(mRsmpInBuffer);
+    mRsmpInBuffer = NULL;
 
     // TODO optimize audio capture buffer sizes ...
     // Here we calculate the size of the sliding buffer used as a source
@@ -6935,7 +6964,9 @@ void AudioFlinger::RecordThread::readInputParameters_l()
     // The current value is higher than necessary.  However it should not add to latency.
 
     // Over-allocate beyond mRsmpInFramesP2 to permit a HAL read past end of buffer
-    (void)posix_memalign(&mRsmpInBuffer, 32, (mRsmpInFramesP2 + mFrameCount - 1) * mFrameSize);
+    size_t bufferSize = (mRsmpInFramesP2 + mFrameCount - 1) * mFrameSize;
+    (void)posix_memalign(&mRsmpInBuffer, 32, bufferSize);
+    memset(mRsmpInBuffer, 0, bufferSize); // if posix_memalign fails, will segv here.
 
     // AudioRecord mSampleRate and mChannelCount are constant due to AudioRecord API constraints.
     // But if thread's mSampleRate or mChannelCount changes, how will that affect active tracks?

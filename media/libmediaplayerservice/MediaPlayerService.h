@@ -226,6 +226,7 @@ public:
     virtual status_t            dump(int fd, const Vector<String16>& args);
 
             void                removeClient(wp<Client> client);
+            bool                hasClient(wp<Client> client);
 
     // For battery usage tracking purpose
     struct BatteryUsageInfo {
@@ -276,6 +277,7 @@ private:
     class Client : public BnMediaPlayer {
         // IMediaPlayer interface
         virtual void            disconnect();
+        virtual void            setNeedConsume(bool needConsum);
         virtual status_t        setVideoSurfaceTexture(
                                         const sp<IGraphicBufferProducer>& bufferProducer);
         virtual status_t        prepareAsync();

@@ -6,6 +6,10 @@ LOCAL_SRC_FILES:= \
     service/AudioPolicyService.cpp \
     service/AudioPolicyEffects.cpp
 
+ifeq ($(USE_CUSTOM_AUDIO_POLICY), 1)
+    LOCAL_CFLAGS += -DSPRD_CUSTOM_AUDIO_POLICY
+endif
+
 ifeq ($(USE_LEGACY_AUDIO_POLICY), 1)
 LOCAL_SRC_FILES += \
     service/AudioPolicyInterfaceImplLegacy.cpp \
@@ -81,6 +85,8 @@ LOCAL_SHARED_LIBRARIES += libaudiopolicyenginedefault
 
 endif
 
+
+
 LOCAL_C_INCLUDES += \
     $(TOPDIR)frameworks/av/services/audiopolicy/common/include \
     $(TOPDIR)frameworks/av/services/audiopolicy/engine/interface \
@@ -88,6 +94,16 @@ LOCAL_C_INCLUDES += \
 LOCAL_STATIC_LIBRARIES := \
     libmedia_helper \
     libaudiopolicycomponents
+
+
+ifeq ($(USE_CUSTOM_AUDIO_POLICY), 1)
+LOCAL_CFLAGS += -DSPRD_CUSTOM_AUDIO_POLICY
+endif
+
+ifeq ($(strip $(AUDIO_SMART_PA_TYPE)), NXP)
+LOCAL_CFLAGS += -DNXP_SMART_PA
+endif
+
 
 LOCAL_MODULE:= libaudiopolicymanagerdefault
 

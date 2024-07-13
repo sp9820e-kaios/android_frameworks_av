@@ -104,6 +104,8 @@ public:
     // when a new frame becomes available.
     void setFrameAvailableListener(const sp<FrameAvailableListener>& listener);
 
+    static bool isGpuRgbModeEnabled();
+
     // dump our state in a String
     void dump(String8& result) const;
     void dump(String8& result, const char* prefix, char* buffer,

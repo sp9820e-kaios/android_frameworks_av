@@ -523,6 +523,10 @@ status_t AudioTrack::start()
         mTimestampStartupGlitchReported = false;
         mRetrogradeMotionReported = false;
 
+        if(previousState == STATE_STOPPED){
+            mMarkerReached = false;
+        }
+
         // For offloaded tracks, we don't know if the hardware counters are really zero here,
         // since the flush is asynchronous and stop may not fully drain.
         // We save the time when the track is started to later verify whether
@@ -592,9 +596,6 @@ void AudioTrack::stop()
 
     mProxy->interrupt();
     mAudioTrack->stop();
-    // the playback head position will reset to 0, so if a marker is set, we need
-    // to activate it again
-    mMarkerReached = false;
 
     if (mSharedBuffer != 0) {
         // clear buffer position and loop count.
@@ -1843,7 +1844,9 @@ nsecs_t AudioTrack::processAudioBuffer()
         case NO_ERROR:
         case DEAD_OBJECT:
         case TIMED_OUT:
-            mCbf(EVENT_STREAM_END, mUserData, NULL);
+            if(status != DEAD_OBJECT){
+                mCbf(EVENT_STREAM_END, mUserData, NULL);
+            }
             {
                 AutoMutex lock(mLock);
                 // The previously assigned value of waitStreamEnd is no longer valid,

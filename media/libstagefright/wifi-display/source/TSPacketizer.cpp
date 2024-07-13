@@ -473,7 +473,8 @@ status_t TSPacketizer::packetize(
     if (track->isH264() && (flags & PREPEND_SPS_PPS_TO_IDR_FRAMES)
             && IsIDR(accessUnit)) {
         // prepend codec specific data, i.e. SPS and PPS.
-        accessUnit = track->prependCSD(accessUnit);
+        //mjx note:no need,in sharkl solution,vsp encoder would add sps pps
+        //accessUnit = track->prependCSD(accessUnit);
     } else if (track->isAAC() && track->lacksADTSHeader()) {
         CHECK(!(flags & IS_ENCRYPTED));
         accessUnit = track->prependADTSHeader(accessUnit);

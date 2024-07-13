@@ -993,6 +993,16 @@ status_t ANetworkSession::createClientOrServer(
             err = -errno;
             goto bail2;
         }
+
+        if(mode == kModeCreateRTSPServer){
+        ALOGE("mmt Create Rtsp server && set tos 0x80");
+        const int tos = 128;
+        res = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+        if(res <0 ){
+                err = -errno;
+                goto bail2;
+        }
+        }
     }
 
     if (mode == kModeCreateUDPSession) {
@@ -1011,6 +1021,14 @@ status_t ANetworkSession::createClientOrServer(
             err = -errno;
             goto bail2;
         }
+        ALOGE("mmt Create UDP session && set tos 0xA0");
+        const int tos = 160;
+        res = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+        if(res <0 ){
+            err = -errno;
+            goto bail2;
+        }
+
     } else if (mode == kModeCreateTCPDatagramSessionActive) {
         int flag = 1;
         res = setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));

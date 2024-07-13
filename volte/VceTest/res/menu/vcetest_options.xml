@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/hideLocalImage"
+        android:title="Hide Local Image"
+        android:showAsAction="withText" />
+    <item
+        android:id="@+id/showLocalImage"
+        android:title="Show Local Image"
+        android:showAsAction="withText" />
+    <item
+        android:id="@+id/enableHEVC"
+        android:title="Enable HEVC"
+        android:showAsAction="withText" />
+    <item
+        android:id="@+id/enableAVC"
+        android:title="Enable AVC"
+        android:showAsAction="withText" />
+    <item
+        android:id="@+id/info"
+        android:title="About"
+        android:showAsAction="withText" />
+</menu>

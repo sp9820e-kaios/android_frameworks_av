@@ -98,7 +98,12 @@ public:
     void getSupportedPictureSizes(Vector<Size> &sizes) const;
     void setPictureFormat(const char *format);
     const char *getPictureFormat() const;
-
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    int getSprdBrightNess() const;
+    void setSprdBrightNess(int brightness);
+    int getSprdPerfectSkinLevel() const;
+    void setSprdPerfectSkinLevel(int skinlevel);
+#endif
     void dump() const;
     status_t dump(int fd, const Vector<String16>& args) const;
 
@@ -683,6 +688,32 @@ public:
     // High-dynamic range mode
     static const char LIGHTFX_HDR[];
 
+	#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    // The camera string.
+    // Example value: "1". Read/write.
+    static const char KEY_BRIGHTNESS[];
+
+    // Supported the camera strings.
+    // Example value: "0,1,2,3,4,5,6". Read only.
+    static const char KEY_SUPPORTED_BRIGHTNESS[];
+    static const char KEY_CONTRAST[];
+    static const char KEY_SENSOR_ORIENT[];
+    static const char KEY_SENSOR_ROT[];
+    static const char KEY_SUPPORTED_CONTRAST[];
+    // Current saturation settings.
+    static const char KEY_SATURATION[];
+    static const char KEY_SUPPORTED_SATURATION[];
+    static const char KEY_SLOWMOTION[];
+    static const char KEY_SUPPORTED_SLOWMOTION[];
+    static const char KEY_METERING_MODE[];
+    static const char KEY_SUPPORTED_METERING_MODE[];
+    // Current iso settings.
+    static const char KEY_ISO[];
+    static const char KEY_SUPPORTED_ISO[];
+    static const char KEY_PERFECT_SKIN_LEVEL[];
+    static const char KEY_EOIS[];
+
+#endif
     /**
      * Returns the the supported preview formats as an enum given in graphics.h
      * corrsponding to the format given in the input string or -1 if no such

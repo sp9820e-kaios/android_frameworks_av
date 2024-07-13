@@ -48,8 +48,14 @@ enum {
     kKeyChannelCount      = '#chn',  // int32_t
     kKeyChannelMask       = 'chnm',  // int32_t
     kKeySampleRate        = 'srte',  // int32_t (audio sampling rate Hz)
+    kkBitsPerSample       = 'btsp', //int32_t (bits per sample)
     kKeyFrameRate         = 'frmR',  // int32_t (video frame rate fps)
+#ifdef CONFIG_SPRD_RECORD_EIS
+    kKeyEISMode           ='eis',
+    kKeyActualTime        ='actu',
+#endif
     kKeyBitRate           = 'brte',  // int32_t (bps)
+    kKeyBlockAlign        = 'blka',  // int32_t
     kKeyESDS              = 'esds',  // raw data
     kKeyAACProfile        = 'aacp',  // int32_t
     kKeyAVCC              = 'avcc',  // raw data

@@ -42,6 +42,7 @@ public:
     virtual sp<DecryptHandle> DrmInitialization(const char *mime);
 
     virtual void getDrmInfo(sp<DecryptHandle> &handle, DrmManagerClient **client);
+    virtual void getFd(int *fd,int64_t *offset) ;
 
 protected:
     virtual ~FileSource();
@@ -50,6 +51,7 @@ private:
     int mFd;
     int64_t mOffset;
     int64_t mLength;
+    int64_t mContainerBasedDrmLength;
     Mutex mLock;
 
     /*for DRM*/

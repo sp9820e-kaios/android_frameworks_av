@@ -50,6 +50,9 @@ class CameraDeviceBase : public virtual RefBase {
     virtual status_t initialize(CameraModule *module) = 0;
     virtual status_t disconnect() = 0;
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    virtual int cancelPicture() = 0;
+#endif
     virtual status_t dump(int fd, const Vector<String16> &args) = 0;
 
     /**

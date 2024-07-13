@@ -147,6 +147,7 @@ public:
         TONE_CDMA_NETWORK_BUSY_ONE_SHOT,
         TONE_CDMA_ABBR_ALERT,
         TONE_CDMA_SIGNAL_OFF,
+        TONE_VIB,
         //CDMA end
         NUM_TONES,
         NUM_SUP_TONES = LAST_SUP_TONE-FIRST_SUP_TONE+1

@@ -63,6 +63,7 @@ namespace android {
 // Logging support -- this is for debugging only
 // Use "adb shell dumpsys media.camera -v 1" to change it.
 volatile int32_t gLogLevel = 0;
+static const int PROCESS_STATE_TOP = 2;//xuewei.gu add 20170118 for improve camera performance
 
 #define LOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
 #define LOG2(...) ALOGD_IF(gLogLevel >= 2, __VA_ARGS__);
@@ -169,6 +170,11 @@ void CameraService::onFirstRef()
         mModule = nullptr;
         return;
     }
+    VendorTagDescriptor::clearGlobalVendorTagDescriptor();
+
+    if (mModule->getModuleApiVersion() >= CAMERA_MODULE_API_VERSION_2_2) {
+        setUpVendorTags();
+    }
 
     mNumberOfCameras = mModule->getNumberOfCameras();
     mNumberOfNormalCameras = mNumberOfCameras;
@@ -238,13 +244,13 @@ void CameraService::onFirstRef()
     if (mModule->getModuleApiVersion() >= CAMERA_MODULE_API_VERSION_2_1) {
         mModule->setCallbacks(this);
     }
-
+/*
     VendorTagDescriptor::clearGlobalVendorTagDescriptor();
 
     if (mModule->getModuleApiVersion() >= CAMERA_MODULE_API_VERSION_2_2) {
         setUpVendorTags();
     }
-
+*/
     CameraDeviceFactory::registerService(this);
 
     CameraService::pingCameraServiceProxy();
@@ -935,6 +941,10 @@ void CameraService::finishConnectLocked(const sp<BasicClient>& client,
         LOG_ALWAYS_FATAL("%s: Invalid state for CameraService, clients not evicted properly",
                 __FUNCTION__);
     }
+	sp<IBinder> remoteCallback = client->getRemote();
+	if (remoteCallback != nullptr) {
+		remoteCallback->linkToDeath(this);
+	}
 }
 
 status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clientPid,
@@ -983,9 +993,14 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
         // not have an out-of-class definition.
         std::vector<int> priorities(ownerPids.size(), +PROCESS_STATE_NONEXISTENT);
 
-        // Get priorites of all active PIDs
-        ProcessInfoService::getProcessStatesFromPids(ownerPids.size(), &ownerPids[0],
-                /*out*/&priorities[0]);
+//xuewei.gu modify begin 20170118 for improve camera performance
+        //Android add ProcessInfoService in java framework layer, but B2G does not.
+        //So, Camera Server get a timeout when call ProcessInfoServer.
+        //Remove getProcessStatesFromPids and making the value of priority for all camera clients are larger than -1 and all the same.
+        for (size_t i = 0; i < ownerPids.size(); i++) {
+            priorities[i] = PROCESS_STATE_TOP;
+        }
+//xuewei.gu modify end 20170118 for improve camera performance
 
         // Update all active clients' priorities
         std::map<int,int> pidToPriorityMap;
@@ -1896,6 +1911,14 @@ void CameraService::BasicClient::disconnect() {
     mClientPid = 0;
 }
 
+status_t CameraService::BasicClient::dump(int, const Vector<String16>&) {
+    // No dumping of clients directly over Binder,
+    // must go through CameraService::dump
+    android_errorWriteWithInfoLog(SN_EVENT_LOG_ID, "26265403",
+            IPCThreadState::self()->getCallingUid(), NULL, 0);
+    return OK;
+}
+
 String16 CameraService::BasicClient::getPackageName() const {
     return mClientPackageName;
 }
@@ -2328,7 +2351,7 @@ status_t CameraService::dump(int fd, const Vector<String16>& args) {
                     String8(client->getPackageName()).string());
             write(fd, result.string(), result.size());
 
-            client->dump(fd, args);
+            client->dumpClient(fd, args);
         }
 
         if (stateLocked) mCameraStatesLock.unlock();

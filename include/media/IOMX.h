@@ -155,7 +155,7 @@ public:
             node_id node, OMX_U32 port_index, buffer_id buffer) = 0;
 
     enum {
-        kFenceTimeoutMs = 1000
+        kFenceTimeoutMs = 3000
     };
     // Calls OMX_FillBuffer on buffer, and passes |fenceFd| to component if it supports
     // fences. Otherwise, it waits on |fenceFd| before calling OMX_FillBuffer.
@@ -249,6 +249,12 @@ public:
     virtual status_t onTransact(
             uint32_t code, const Parcel &data, Parcel *reply,
             uint32_t flags = 0);
+
+protected:
+    // check if the codec is secure.
+    virtual bool isSecure(IOMX::node_id node) {
+        return false;
+    }
 };
 
 class BnOMXObserver : public BnInterface<IOMXObserver> {

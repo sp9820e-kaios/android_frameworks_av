@@ -91,6 +91,7 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
             int width, int height, int rate, int bitrate,
             OMX_VIDEO_AVCPROFILETYPE profile = OMX_VIDEO_AVCProfileBaseline);
 
+friend class MediaCodec;
 protected:
     virtual ~ACodec();
 
@@ -267,6 +268,7 @@ private:
     bool mCreateInputBuffersSuspended;
 
     bool mTunneled;
+    bool mUseUndequeuedBufs;
 
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
     status_t allocateBuffersOnPort(OMX_U32 portIndex);
@@ -344,6 +346,8 @@ private:
 
     status_t setupEAC3Codec(bool encoder, int32_t numChannels, int32_t sampleRate);
 
+    status_t setIMAADPCMFormat(int32_t numChannels, int32_t sampleRate, int32_t blockAlign);
+
     status_t selectAudioPortFormat(
             OMX_U32 portIndex, OMX_AUDIO_CODINGTYPE desiredFormat);
 
@@ -353,8 +357,13 @@ private:
     status_t setupFlacCodec(
             bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel);
 
-    status_t setupRawAudioFormat(
-            OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels);
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+        status_t setupRawAudioFormat(
+            OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels, int32_t bitsPerSample=0);
+#else
+        status_t setupRawAudioFormat(
+                 OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels);
+#endif
 
     status_t setPriority(int32_t priority);
     status_t setOperatingRate(float rateFloat, bool isVideo);

@@ -78,6 +78,9 @@ public:
                                           /*out*/
                                           int64_t* lastFrameNumber = NULL) = 0;
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    virtual int        cancelPicture() = 0;
+#endif
     /**
      * Begin the device configuration.
      *

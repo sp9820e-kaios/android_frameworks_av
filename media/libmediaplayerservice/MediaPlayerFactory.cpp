@@ -140,15 +140,16 @@ sp<MediaPlayerBase> MediaPlayerFactory::createPlayer(
     sp<MediaPlayerBase> p;
     IFactory* factory;
     status_t init_result;
-    Mutex::Autolock lock_(&sLock);
+    {
+        Mutex::Autolock lock_(&sLock);
+        if (sFactoryMap.indexOfKey(playerType) < 0) {
+            ALOGE("Failed to create player object of type %d, no registered"
+                  " factory", playerType);
+            return p;
+        }
 
-    if (sFactoryMap.indexOfKey(playerType) < 0) {
-        ALOGE("Failed to create player object of type %d, no registered"
-              " factory", playerType);
-        return p;
+        factory = sFactoryMap.valueFor(playerType);
     }
-
-    factory = sFactoryMap.valueFor(playerType);
     CHECK(NULL != factory);
     p = factory->createPlayer(pid);
 

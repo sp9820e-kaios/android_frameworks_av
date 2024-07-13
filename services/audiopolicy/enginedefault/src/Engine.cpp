@@ -164,6 +164,10 @@ status_t Engine::setForceUse(audio_policy_force_use_t usage, audio_policy_forced
         if (config != AUDIO_POLICY_FORCE_HEADPHONES && config != AUDIO_POLICY_FORCE_BT_A2DP &&
             config != AUDIO_POLICY_FORCE_WIRED_ACCESSORY &&
             config != AUDIO_POLICY_FORCE_ANALOG_DOCK &&
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+            //modify for force use speaker when MEDIA
+            config != AUDIO_POLICY_FORCE_SPEAKER &&
+#endif
             config != AUDIO_POLICY_FORCE_DIGITAL_DOCK && config != AUDIO_POLICY_FORCE_NONE &&
             config != AUDIO_POLICY_FORCE_NO_BT_A2DP && config != AUDIO_POLICY_FORCE_SPEAKER ) {
             ALOGW("setForceUse() invalid config %d for FOR_MEDIA", config);
@@ -203,6 +207,16 @@ status_t Engine::setForceUse(audio_policy_force_use_t usage, audio_policy_forced
         }
         mForceUse[usage] = config;
         break;
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+    //modify for FM
+    case AUDIO_POLICY_FORCE_FOR_FM:
+        if (config != AUDIO_POLICY_FORCE_NONE &&
+            config != AUDIO_POLICY_FORCE_SPEAKER) {
+            ALOGW("setForceUse() invalid config %d for AUDIO_POLICY_FORCE_FOR_FM", config);
+        }
+        mForceUse[usage] = config;
+        break;
+#endif
     default:
         ALOGW("setForceUse() invalid usage %d", usage);
         break;
@@ -239,6 +253,13 @@ routing_strategy Engine::getStrategyForStream(audio_stream_type_t stream)
         return STRATEGY_ACCESSIBILITY;
     case AUDIO_STREAM_REROUTING:
         return STRATEGY_REROUTING;
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+        //modify for FM
+    case AUDIO_STREAM_FM:
+        return STRATEGY_FM;
+#endif
+    case AUDIO_STREAM_VIB:
+        return STRATEGY_VIB;
     }
 }
 
@@ -280,7 +301,8 @@ routing_strategy Engine::getStrategyForUsage(audio_usage_t usage)
     case AUDIO_USAGE_NOTIFICATION_COMMUNICATION_DELAYED:
     case AUDIO_USAGE_NOTIFICATION_EVENT:
         return STRATEGY_SONIFICATION_RESPECTFUL;
-
+    case AUDIO_USAGE_VIB:
+        return STRATEGY_VIB;
     case AUDIO_USAGE_UNKNOWN:
     default:
         return STRATEGY_MEDIA;
@@ -327,7 +349,10 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
         } else if (outputs.isStreamActive(AUDIO_STREAM_MUSIC, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)) {
             // while media is playing (or has recently played), use the same device
             device = getDeviceForStrategy(STRATEGY_MEDIA);
-        } else {
+        } else if (outputs.isStreamActive(AUDIO_STREAM_FM, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)) {
+            // while media is playing (or has recently played), use the same device
+            device = getDeviceForStrategy(STRATEGY_MEDIA);
+        }else {
             // when media is not playing anymore, fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_SONIFICATION);
             //user "safe" speaker if available instead of normal speaker to avoid triggering
@@ -410,6 +435,10 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
                 if (device) break;
                 device = availableOutputDevicesType & AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET;
                 if (device) break;
+                if((outputs.isStreamActive(AUDIO_STREAM_RING))||(outputs.isStreamActive(AUDIO_STREAM_MUSIC))){
+                    device = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+                    if (device) break;
+                }
             }
             device = availableOutputDevicesType & AUDIO_DEVICE_OUT_EARPIECE;
             if (device) break;
@@ -467,9 +496,19 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
         // except:
         //   - when in call where it doesn't default to STRATEGY_PHONE behavior
         //   - in countries where not enforced in which case it follows STRATEGY_MEDIA
-
-        if ((strategy == STRATEGY_SONIFICATION) ||
-                (mForceUse[AUDIO_POLICY_FORCE_FOR_SYSTEM] == AUDIO_POLICY_FORCE_SYSTEM_ENFORCED)) {
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+        //modify for : when InCall, take a picture or record a video use enforced_audible,
+        //the sound still use STRATEGY_PHONE behavior
+        if (isInCall()) {
+            device = getDeviceForStrategy(STRATEGY_PHONE); /*fromCache*/
+            break;
+        }
+#endif
+        if (((strategy == STRATEGY_SONIFICATION) ||
+                (mForceUse[AUDIO_POLICY_FORCE_FOR_SYSTEM] == AUDIO_POLICY_FORCE_SYSTEM_ENFORCED)) &&
+                    !(outputs.isStreamActive(AUDIO_STREAM_FM,0) &&
+                    mForceUse[AUDIO_POLICY_FORCE_FOR_FM] != AUDIO_POLICY_FORCE_SPEAKER &&
+                    mPhoneState != AUDIO_MODE_RINGTONE)) {
             device = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
             if (device == AUDIO_DEVICE_NONE) {
                 ALOGE("getDeviceForStrategy() speaker device not found for STRATEGY_SONIFICATION");
@@ -508,6 +547,14 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
             device = getDeviceForStrategy(STRATEGY_PHONE);
             break;
         }
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+        // when app set AUDIO_POLICY_FORCE_SPEAKER , first choose speaker
+        // rather a2dp even if connecting a2dp
+        if ((device2 == AUDIO_DEVICE_NONE) &&
+            (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] == AUDIO_POLICY_FORCE_SPEAKER)) {
+            device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+        }
+#endif
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] != AUDIO_POLICY_FORCE_NO_BT_A2DP) &&
                 (outputs.getA2dpOutput() != 0)) {
@@ -523,6 +570,15 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
             (mForceUse[AUDIO_POLICY_FORCE_FOR_MEDIA] == AUDIO_POLICY_FORCE_SPEAKER)) {
             device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
         }
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+        //modify for FM
+        if (mForceUse[AUDIO_POLICY_FORCE_FOR_FM] == AUDIO_POLICY_FORCE_SPEAKER) {
+            ALOGI("geting device of force_speaker :STRATEGY_FM");
+            if (device2 == AUDIO_DEVICE_NONE) {
+                device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+            }
+        }
+#endif
         if (device2 == AUDIO_DEVICE_NONE) {
             device2 = availableOutputDevicesType & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
         }
@@ -578,6 +634,40 @@ audio_devices_t Engine::getDeviceForStrategy(routing_strategy strategy) const
             ALOGE("getDeviceForStrategy() no device found for STRATEGY_MEDIA");
         }
         } break;
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+    //modify for FM
+    case STRATEGY_FM: {
+            if (mForceUse[AUDIO_POLICY_FORCE_FOR_FM] == AUDIO_POLICY_FORCE_SPEAKER) {
+                ALOGI("geting device of force_speaker :STRATEGY_FM");
+                if (device == AUDIO_DEVICE_NONE) {
+                    device = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+                }
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = availableOutputDevicesType & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = availableOutputDevicesType & AUDIO_DEVICE_OUT_WIRED_HEADSET;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+		device = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+            }
+        } break;
+#endif
+
+    case STRATEGY_VIB:
+        if (device == 0) {
+            if(((availableOutputDevicesType
+                        & (AUDIO_DEVICE_OUT_WIRED_HEADSET | AUDIO_DEVICE_OUT_WIRED_HEADPHONE | AUDIO_DEVICE_OUT_FM_HEADSET))
+                    //&& isAnyOutputActive(AUDIO_STREAM_VIB)
+                    )
+                    || isInCall()){
+                device =0;
+            }else{
+                device = availableOutputDevicesType & AUDIO_DEVICE_OUT_SPEAKER;
+            }
+        }
+        break;
 
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);

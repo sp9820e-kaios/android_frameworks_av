@@ -34,11 +34,13 @@ namespace camera3 {
 Camera3OutputStream::Camera3OutputStream(int id,
         sp<Surface> consumer,
         uint32_t width, uint32_t height, int format,
-        android_dataspace dataSpace, camera3_stream_rotation_t rotation) :
+        android_dataspace dataSpace, camera3_stream_rotation_t rotation,
+        nsecs_t timestampOffset) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, width, height,
                             /*maxSize*/0, format, dataSpace, rotation),
         mConsumer(consumer),
         mTransform(0),
+        mTimestampOffset(timestampOffset),
         mTraceFirstBuffer(true) {
 
     if (mConsumer == NULL) {
@@ -50,11 +52,14 @@ Camera3OutputStream::Camera3OutputStream(int id,
 Camera3OutputStream::Camera3OutputStream(int id,
         sp<Surface> consumer,
         uint32_t width, uint32_t height, size_t maxSize, int format,
-        android_dataspace dataSpace, camera3_stream_rotation_t rotation) :
+        android_dataspace dataSpace, camera3_stream_rotation_t rotation,
+        nsecs_t timestampOffset) :
         Camera3IOStreamBase(id, CAMERA3_STREAM_OUTPUT, width, height, maxSize,
                             format, dataSpace, rotation),
         mConsumer(consumer),
         mTransform(0),
+        mUseMonoTimestamp(false),
+        mTimestampOffset(timestampOffset),
         mTraceFirstBuffer(true) {
 
     if (format != HAL_PIXEL_FORMAT_BLOB) {
@@ -77,7 +82,8 @@ Camera3OutputStream::Camera3OutputStream(int id, camera3_stream_type_t type,
         Camera3IOStreamBase(id, type, width, height,
                             /*maxSize*/0,
                             format, dataSpace, rotation),
-        mTransform(0) {
+        mTransform(0),
+        mUseMonoTimestamp(false){
 
     // Subclasses expected to initialize mConsumer themselves
 }
@@ -193,7 +199,8 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
             mTraceFirstBuffer = false;
         }
 
-        res = native_window_set_buffers_timestamp(mConsumer.get(), timestamp);
+        res = native_window_set_buffers_timestamp(mConsumer.get(),
+                mUseMonoTimestamp ? timestamp - mTimestampOffset : timestamp);
         if (res != OK) {
             ALOGE("%s: Stream %d: Error setting timestamp: %s (%d)",
                   __FUNCTION__, mId, strerror(-res), res);
@@ -350,6 +357,7 @@ status_t Camera3OutputStream::configureQueueLocked() {
     mHandoutTotalBufferCount = 0;
     mFrameCount = 0;
     mLastTimestamp = 0;
+    mUseMonoTimestamp = (isConsumedByHWComposer() | isVideoStream());
 
     res = native_window_set_buffer_count(mConsumer.get(),
             mTotalBufferCount);
@@ -425,6 +433,30 @@ status_t Camera3OutputStream::getEndpointUsage(uint32_t *usage) const {
     *usage = u;
     return res;
 }
+
+bool Camera3OutputStream::isConsumedByHWComposer() const {
+    uint32_t usage = 0;
+    status_t res = getEndpointUsage(&usage);
+    if (res != OK) {
+        ALOGE("%s: getting end point usage failed: %s (%d).", __FUNCTION__, strerror(-res), res);
+        return false;
+    }
+
+    return (usage & GRALLOC_USAGE_HW_COMPOSER) != 0;
+}
+
+bool Camera3OutputStream::isVideoStream() const {
+    uint32_t usage = 0;
+    status_t res = getEndpointUsage(&usage);
+    if (res != OK) {
+        ALOGE("%s: getting end point usage failed: %s (%d).", __FUNCTION__, strerror(-res), res);
+        return false;
+    }
+
+    return (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) != 0;
+}
+
+
 
 }; // namespace camera3
 

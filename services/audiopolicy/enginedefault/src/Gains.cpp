@@ -182,6 +182,12 @@ const VolumeCurvePoint *Gains::sVolumeProfiles[AUDIO_STREAM_CNT]
         Gains::sDefaultMediaVolumeCurve, // DEVICE_CATEGORY_EARPIECE
         Gains::sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EXT_MEDIA
     },
+    {  // AUDIO_STREAM_VIB make vib specific values for devices
+        sHeadsetSystemVolumeCurve, // DEVICE_CATEGORY_HEADSET
+        sDefaultSystemVolumeCurve, // DEVICE_CATEGORY_SPEAKER
+        sDefaultSystemVolumeCurve, // DEVICE_CATEGORY_EARPIECE
+        sExtMediaSystemVolumeCurve  // DEVICE_CATEGORY_EXT_MEDIA
+    },
     { // AUDIO_STREAM_REROUTING
         Gains::sFullScaleVolumeCurve, // DEVICE_CATEGORY_HEADSET
         Gains::sFullScaleVolumeCurve, // DEVICE_CATEGORY_SPEAKER

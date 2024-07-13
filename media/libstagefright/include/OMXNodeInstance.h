@@ -125,6 +125,10 @@ struct OMXNodeInstance {
             const void *data,
             size_t size);
 
+    bool isSecure() const {
+        return mIsSecure;
+    }
+
     // handles messages and removes them from the list
     void onMessages(std::list<omx_message> &messages);
     void onMessage(const omx_message &msg);
@@ -142,6 +146,7 @@ private:
     OMX_HANDLETYPE mHandle;
     sp<IOMXObserver> mObserver;
     bool mDying;
+    bool mIsSecure;
 
     // Lock only covers mGraphicBufferSource.  We can't always use mLock
     // because of rare instances where we'd end up locking it recursively.
@@ -161,6 +166,7 @@ private:
     KeyedVector<OMX::buffer_id, OMX_BUFFERHEADERTYPE *> mBufferIDToBufferHeader;
     KeyedVector<OMX_BUFFERHEADERTYPE *, OMX::buffer_id> mBufferHeaderToBufferID;
     MetadataBufferType mMetadataType[2];
+    bool mGraphicBufferEnabled[2];
 
     // For debug support
     char *mName;
@@ -182,7 +188,7 @@ private:
 
     // For buffer id management
     OMX::buffer_id makeBufferID(OMX_BUFFERHEADERTYPE *bufferHeader);
-    OMX_BUFFERHEADERTYPE *findBufferHeader(OMX::buffer_id buffer);
+    OMX_BUFFERHEADERTYPE *findBufferHeader(OMX::buffer_id buffer, OMX_U32 portIndex);
     OMX::buffer_id findBufferID(OMX_BUFFERHEADERTYPE *bufferHeader);
     void invalidateBufferID(OMX::buffer_id buffer);
 

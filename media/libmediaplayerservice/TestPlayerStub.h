@@ -93,6 +93,7 @@ class TestPlayerStub : public MediaPlayerInterface {
     }
     virtual status_t getDuration(int *d)  {return mPlayer->getDuration(d);}
     virtual status_t reset() {return mPlayer->reset();}
+    virtual void setNeedConsume(bool needConsume) {mPlayer->setNeedConsume(needConsume);}
     virtual status_t setLooping(int b)  {return mPlayer->setLooping(b);}
     virtual player_type playerType() {return mPlayer->playerType();}
     virtual status_t invoke(const android::Parcel& in, android::Parcel *out) {

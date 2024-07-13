@@ -19,6 +19,7 @@
 #include <utils/Log.h>
 
 #include "MediaSender.h"
+#include <sys/time.h>
 
 #include "rtp/RTPSender.h"
 #include "source/TSPacketizer.h"
@@ -45,7 +46,10 @@ MediaSender::MediaSender(
       mPrevTimeUs(-1ll),
       mInitDoneCount(0),
       mLogFile(NULL) {
-    // mLogFile = fopen("/data/misc/log.ts", "wb");
+      //mLogFile = fopen("/data/misc/media/log.ts", "wb");
+      mSendFlowCtr_TotalSize = 0;
+      mSendFlowCtr_LatestTime = 0;
+      mSendFlowCtr_Count = 0;
 }
 
 MediaSender::~MediaSender() {
@@ -261,10 +265,37 @@ status_t MediaSender::queueAccessUnit(
                 CHECK(accessUnit->meta()->findInt64("timeUs", &timeUs));
                 tsPackets->meta()->setInt64("timeUs", timeUs);
 
+                int64_t nowUs = systemTime(SYSTEM_TIME_MONOTONIC) / 1000ll;
+                if(info->mIsAudio) {
+                   ALOGI("wfd: MediaSender::queueAccessUnit Audio Packet size: %d, time: %lld",tsPackets->size(),nowUs);
+                } else {
+                   ALOGI("wfd: MediaSender::queueAccessUnit Video Packet size: %d, time: %lld",tsPackets->size(),nowUs);
+                }
                 err = mTSSender->queueBuffer(
                         tsPackets,
                         33 /* packetType */,
                         RTPSender::PACKETIZATION_TRANSPORT_STREAM);
+#if 0
+                mSendFlowCtr_TotalSize+=tsPackets->size();
+                if(mSendFlowCtr_Count == 0)
+                {
+                    //get time first.
+                    mSendFlowCtr_LatestTime = nowUs;
+                }
+                if(mSendFlowCtr_LatestTime!=0 && (mSendFlowCtr_Count%25==0))
+                {
+                    int timeinmsec = (nowUs - mSendFlowCtr_LatestTime)/1000ll;
+                    int SendRate = mSendFlowCtr_TotalSize/timeinmsec;
+                    if(SendRate>2500) //2.5M BytePerSecond
+                    {
+                        ALOGI("wfd: MediaSender::queueAccessUnit sleep SendRate:%d,timeinmsec:%d",SendRate,timeinmsec);
+                        usleep(8000); //8ms
+                    }
+                    mSendFlowCtr_TotalSize = 0;
+                    mSendFlowCtr_LatestTime = nowUs;
+                }
+                mSendFlowCtr_Count++;
+#endif
             }
 
             if (err != OK) {
@@ -494,7 +525,8 @@ status_t MediaSender::packetizeAccessUnit(
     }
 
     int64_t timeUs = ALooper::GetNowUs();
-    if (mPrevTimeUs < 0ll || mPrevTimeUs + 100000ll <= timeUs) {
+    //mjx note:in TS protocol.pcr should be send 10 times in one second at least.
+    if (mPrevTimeUs < 0ll || mPrevTimeUs + 80000ll <= timeUs) {
         flags |= TSPacketizer::EMIT_PCR;
         flags |= TSPacketizer::EMIT_PAT_AND_PMT;
 

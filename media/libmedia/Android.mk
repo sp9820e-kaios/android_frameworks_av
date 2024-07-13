@@ -14,6 +14,10 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
+ifeq ($(USE_PROJECT_SEC),true)
+LOCAL_CFLAGS += -DUSE_PROJECT_SEC
+endif
+
 LOCAL_SRC_FILES:= \
     AudioTrack.cpp \
     AudioTrackShared.cpp \
@@ -44,6 +48,7 @@ LOCAL_SRC_FILES:= \
     IResourceManagerService.cpp \
     IStreamSource.cpp \
     MediaCodecInfo.cpp \
+    MediaUtils.cpp \
     Metadata.cpp \
     mediarecorder.cpp \
     IMediaMetadataRetriever.cpp \
@@ -67,6 +72,7 @@ LOCAL_SRC_FILES:= \
     Visualizer.cpp \
     MemoryLeakTrackUtil.cpp \
     StringArray.cpp \
+    VibratorTone.cpp \
     AudioPolicy.cpp
 
 LOCAL_SHARED_LIBRARIES := \

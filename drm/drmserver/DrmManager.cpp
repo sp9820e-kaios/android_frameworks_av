@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #define LOG_TAG "DrmManager(Native)"
 #include "utils/Log.h"
 
@@ -51,7 +51,7 @@ DrmManager::~DrmManager() {
 }
 
 int DrmManager::addUniqueId(bool isNative) {
-    Mutex::Autolock _l(mLock);
+    Mutex::Autolock _l(mIDLock);
 
     int uniqueId = -1;
     int random = rand();
@@ -76,7 +76,7 @@ int DrmManager::addUniqueId(bool isNative) {
 }
 
 void DrmManager::removeUniqueId(int uniqueId) {
-    Mutex::Autolock _l(mLock);
+    Mutex::Autolock _l(mIDLock);
     if (uniqueId & 0x1000) {
         // clear the flag for the native side.
         uniqueId &= ~(0x1000);
@@ -350,9 +350,12 @@ DrmConvertedStatus* DrmManager::convertData(
     DrmConvertedStatus *drmConvertedStatus = NULL;
 
     Mutex::Autolock _l(mConvertLock);
+	ALOGV("DrmManager::convertData: convertId = %d", convertId);
     if (mConvertSessionMap.indexOfKey(convertId) != NAME_NOT_FOUND) {
         IDrmEngine* drmEngine = mConvertSessionMap.valueFor(convertId);
         drmConvertedStatus = drmEngine->convertData(uniqueId, convertId, inputData);
+    } else {
+		ALOGV("DrmManager::convertData: convertId not found!");
     }
     return drmConvertedStatus;
 }

@@ -113,6 +113,15 @@ void AudioPolicyService::onFirstRef()
 
         mAudioPolicyClient = new AudioPolicyClient(this);
         mAudioPolicyManager = createAudioPolicyManager(mAudioPolicyClient);
+
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+        /*SPRD for new policy, set the camera forced sound*/
+        property_get("ro.camera.sound.forced", value, "1");
+        forced_val = strtol(value, NULL, 0);
+        ALOGV("ro.camera.sound.forced !forced_val=%d ",!forced_val);
+        mAudioPolicyManager->setSystemProperty("ro.camera.sound.forced", !forced_val ? "0" : "1");
+#endif
+
 #endif
     }
     // load audio processing modules
@@ -751,7 +760,11 @@ status_t AudioPolicyService::AudioCommandThread::createAudioPatchCommand(
     data->mPatch = *patch;
     data->mHandle = *handle;
     command->mParam = data;
-    command->mWaitStatus = true;
+    if(delayMs &&  (*handle != AUDIO_PATCH_HANDLE_NONE)){
+        command->mWaitStatus = false;
+    }else{
+        command->mWaitStatus = true;
+    }
     ALOGV("AudioCommandThread() adding create patch delay %d", delayMs);
     status = sendCommand(command, delayMs);
     if (status == NO_ERROR) {

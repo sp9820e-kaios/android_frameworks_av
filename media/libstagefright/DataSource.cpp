@@ -33,8 +33,10 @@
 #include "include/WAVExtractor.h"
 #include "include/WVMExtractor.h"
 
+#include "include/AVIExtractor.h"
+#include "include/FLVExtractor.h"
 #include "matroska/MatroskaExtractor.h"
-
+#include "include/PSXSTRExtractor.h"
 #include <media/IMediaHTTPConnection.h>
 #include <media/IMediaHTTPService.h>
 #include <media/stagefright/foundation/ADebug.h>
@@ -175,6 +177,9 @@ void DataSource::RegisterDefaultSniffers() {
     RegisterSniffer_l(SniffMPEG2PS);
     RegisterSniffer_l(SniffWVM);
     RegisterSniffer_l(SniffMidi);
+    RegisterSniffer_l(SniffAVI);
+    RegisterSniffer_l(SniffPSXSTR);
+	RegisterSniffer_l(SniffFLV);
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("drm.service.enabled", value, NULL)
@@ -246,7 +251,7 @@ sp<DataSource> DataSource::CreateFromURI(
                 *contentType = httpSource->getMIMEType();
             }
 
-            source = new NuCachedSource2(
+            source = NuCachedSource2::Create(
                     httpSource,
                     cacheConfig.isEmpty() ? NULL : cacheConfig.string(),
                     disconnectAtHighwatermark);

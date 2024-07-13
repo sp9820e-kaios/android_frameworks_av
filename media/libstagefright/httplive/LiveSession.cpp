@@ -704,6 +704,11 @@ void LiveSession::onMessageReceived(const sp<AMessage> &msg) {
                     AString uri;
                     CHECK(msg->findString("uri", &uri));
 
+                    if (mFetcherInfos.indexOfKey(uri) < 0) {
+                        ALOGE("couldn't find uri: %s", uri.c_str());
+                        break;
+                    }
+
                     int64_t durationUs;
                     CHECK(msg->findInt64("durationUs", &durationUs));
 

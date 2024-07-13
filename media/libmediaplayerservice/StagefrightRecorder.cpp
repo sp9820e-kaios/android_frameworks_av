@@ -53,10 +53,12 @@
 #include <unistd.h>
 
 #include <system/audio.h>
+#include <cutils/properties.h>
 
 #include "ARTPWriter.h"
 
 namespace android {
+int judge(int uid, const String16& name, int oprID, int oprType, const String16& param);
 
 // To collect the encoder usage for the battery app
 static void addBatteryData(uint32_t params) {
@@ -75,7 +77,8 @@ StagefrightRecorder::StagefrightRecorder(const String16 &opPackageName)
       mOutputFd(-1),
       mAudioSource(AUDIO_SOURCE_CNT),
       mVideoSource(VIDEO_SOURCE_LIST_END),
-      mStarted(false) {
+      mStarted(false),
+	  mPause(false) {// SPRD: add pause/resume support for MediaRecorder
 
     ALOGV("Constructor");
     reset();
@@ -835,7 +838,14 @@ status_t StagefrightRecorder::start() {
         ALOGE("Output file descriptor is invalid");
         return INVALID_OPERATION;
     }
-
+    /* SPRD: add pause/resume support for MediaRecorder @{ */
+    if(mWriter!= NULL  && mPause){
+        mPause = false;
+        mStarted = true;
+        mWriter->start();
+        return OK;
+    }
+    /* @} */
     status_t status = OK;
 
     if (mVideoSource != VIDEO_SOURCE_SURFACE) {
@@ -860,6 +870,27 @@ status_t StagefrightRecorder::start() {
             if (mOutputFormat == OUTPUT_FORMAT_WEBM) {
                 isMPEG4 = false;
             }
+            #ifdef   USE_PROJECT_SEC
+            if (mVideoSource == VIDEO_SOURCE_DEFAULT
+                || mVideoSource == VIDEO_SOURCE_CAMERA) {
+                    char value[PROPERTY_VALUE_MAX] = ""; //PROPERTY_VALUE_MAX 92
+                    String16 param;
+                    property_get("service.project.sec", value, "0"); // Get disconnection error code
+                    if(0 == strcmp(value, "1")){
+                        int uid =IPCThreadState::self()->getCallingUid();
+                        int permission = 1 ;
+                        permission = judge(uid, String16("camera.camera"),8,0,param);
+                        if ( permission > 0)
+                        {
+                            ALOGE("StagefrightRecorder::setupMediaSource VIDEO_SOURCE_CAMERA allow");
+                        }
+                        else{
+                            ALOGE("StagefrightRecorder::setupMediaSource VIDEO_SOURCE_CAMERA reject");
+                            return OK;
+                        }
+                    }
+                }
+            #endif
             sp<MetaData> meta = new MetaData;
             setupMPEG4orWEBMMetaData(&meta);
             status = mWriter->start(meta.get());
@@ -1222,7 +1253,8 @@ status_t StagefrightRecorder::checkVideoEncoderCapabilities() {
             (mVideoEncoder == VIDEO_ENCODER_H263 ? MEDIA_MIMETYPE_VIDEO_H263 :
              mVideoEncoder == VIDEO_ENCODER_MPEG_4_SP ? MEDIA_MIMETYPE_VIDEO_MPEG4 :
              mVideoEncoder == VIDEO_ENCODER_VP8 ? MEDIA_MIMETYPE_VIDEO_VP8 :
-             mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC : ""),
+             mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC :
+             mVideoEncoder == VIDEO_ENCODER_H265 ? MEDIA_MIMETYPE_VIDEO_HEVC : ""),
             false /* decoder */, true /* hwCodec */, &codecs);
 
     if (!mCaptureFpsEnable) {
@@ -1511,6 +1543,10 @@ status_t StagefrightRecorder::setupVideoEncoder(
             format->setString("mime", MEDIA_MIMETYPE_VIDEO_VP8);
             break;
 
+        case VIDEO_ENCODER_H265:
+            format->setString("mime", MEDIA_MIMETYPE_VIDEO_HEVC);
+            break;
+
         default:
             CHECK(!"Should not be here, unsupported video encoding.");
             break;
@@ -1526,6 +1562,12 @@ status_t StagefrightRecorder::setupVideoEncoder(
         CHECK(meta->findInt32(kKeySliceHeight, &sliceHeight));
         CHECK(meta->findInt32(kKeyColorFormat, &colorFormat));
 
+#ifdef CONFIG_SPRD_RECORD_EIS
+        int32_t eisMode;
+        if (meta->findInt32(kKeyEISMode, &eisMode)){
+            format->setInt32("eis-mode", eisMode);
+        }
+#endif
         format->setInt32("width", width);
         format->setInt32("height", height);
         format->setInt32("stride", stride);
@@ -1667,9 +1709,11 @@ status_t StagefrightRecorder::setupMPEG4orWEBMRecording() {
         // disable audio for time lapse recording
         bool disableAudio = mCaptureFpsEnable && mCaptureFps < mFrameRate;
         if (!disableAudio && mAudioSource != AUDIO_SOURCE_CNT) {
-            err = setupAudioEncoder(writer);
-            if (err != OK) return err;
-            mTotalBitRate += mAudioBitRate;
+            if (!(mAudioSource == AUDIO_SOURCE_RECORD_NO_AUDIO)) {
+                err = setupAudioEncoder(writer);
+                if (err != OK) return err;
+                mTotalBitRate += mAudioBitRate;
+            }
         }
 
         if (mCaptureFpsEnable) {
@@ -1733,7 +1777,8 @@ status_t StagefrightRecorder::pause() {
 
     if (mStarted) {
         mStarted = false;
-
+        // SPRD: add pause/resume support for MediaRecorder
+        mPause = true;
         uint32_t params = 0;
         if (mAudioSource != AUDIO_SOURCE_CNT) {
             params |= IMediaPlayerService::kBatteryDataTrackAudio;

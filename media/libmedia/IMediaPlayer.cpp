@@ -67,6 +67,7 @@ enum {
     SET_RETRANSMIT_ENDPOINT,
     GET_RETRANSMIT_ENDPOINT,
     SET_NEXT_PLAYER,
+    SET_NEED_CONSUME
 };
 
 class BpMediaPlayer: public BpInterface<IMediaPlayer>
@@ -83,6 +84,14 @@ public:
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
         remote()->transact(DISCONNECT, data, &reply);
+    }
+
+    void setNeedConsume(bool needConsume)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeInt32(needConsume);
+        remote()->transact(SET_NEED_CONSUME, data, &reply);
     }
 
     status_t setDataSource(
@@ -434,6 +443,12 @@ status_t BnMediaPlayer::onTransact(
             disconnect();
             return NO_ERROR;
         } break;
+        case SET_NEED_CONSUME: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            bool needConsume = data.readInt32();
+            setNeedConsume(needConsume);
+            return NO_ERROR;
+        } break;
         case SET_DATA_SOURCE_URL: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
 
@@ -566,7 +581,7 @@ status_t BnMediaPlayer::onTransact(
         } break;
         case GET_CURRENT_POSITION: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
-            int msec;
+            int msec = 0;
             status_t ret = getCurrentPosition(&msec);
             reply->writeInt32(msec);
             reply->writeInt32(ret);
@@ -574,7 +589,7 @@ status_t BnMediaPlayer::onTransact(
         } break;
         case GET_DURATION: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
-            int msec;
+            int msec = 0;
             status_t ret = getDuration(&msec);
             reply->writeInt32(msec);
             reply->writeInt32(ret);

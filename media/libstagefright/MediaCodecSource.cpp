@@ -571,6 +571,15 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
 
             // push decoding time for video, or drift time for audio
             if (mIsVideo) {
+#ifdef CONFIG_SPRD_RECORD_EIS
+                int64_t actualtimeUs =0;
+                if (mbuf->meta_data()->findInt64(kKeyActualTime, &actualtimeUs)) {
+                    sp<AMessage> format = new AMessage;
+                    format->setInt64("actualTime",actualtimeUs);
+                    format->setInt64("originalTime",timeUs);
+                    mEncoder ->setParameters(format);
+                }
+#endif
                 mDecodingTimeQueue.push_back(timeUs);
             } else {
 #if DEBUG_DRIFT_TIME

@@ -49,6 +49,8 @@ public:
     virtual     status_t   prepare();
     virtual     status_t   getMaxAmplitude(int* max);
     virtual     status_t   start();
+    virtual     status_t   pause(); //SPRD: add
+    virtual     status_t   resume(); //SPRD: add
     virtual     status_t   stop();
     virtual     status_t   reset();
     virtual     status_t   init();

@@ -242,6 +242,33 @@ status_t MediaRecorderClient::start()
 
 }
 
+/** SPRD: add { */
+status_t MediaRecorderClient::pause()
+{
+    ALOGV("pause");
+    Mutex::Autolock lock(mLock);
+    if (mRecorder == NULL) {
+        ALOGE("recorder is not initialized");
+        return NO_INIT;
+    }
+    return mRecorder->pause();
+}
+
+status_t MediaRecorderClient::resume()
+{
+    ALOGV("resume");
+    Mutex::Autolock lock(mLock);
+    if (mRecorder == NULL) {
+        ALOGE("recorder is not initialized");
+        return NO_INIT;
+    }
+    //mRecorder is StagefrightRecorder,it doesn't have resume funciton
+    //so,we simply call start, in order to keep compliance with StagefrightRecorder.h
+    return mRecorder->start();
+}
+/** SPRD: add } */
+
+
 status_t MediaRecorderClient::stop()
 {
     ALOGV("stop");

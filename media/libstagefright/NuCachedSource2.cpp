@@ -224,9 +224,6 @@ NuCachedSource2::NuCachedSource2(
     // So whenever we call DataSource::readAt it may end up in a call to
     // IMediaHTTPConnection::readAt and therefore call back into JAVA.
     mLooper->start(false /* runOnCallingThread */, true /* canCallJava */);
-
-    Mutex::Autolock autoLock(mLock);
-    (new AMessage(kWhatFetchMore, mReflector))->post();
 }
 
 NuCachedSource2::~NuCachedSource2() {
@@ -235,6 +232,18 @@ NuCachedSource2::~NuCachedSource2() {
 
     delete mCache;
     mCache = NULL;
+}
+
+// static
+sp<NuCachedSource2> NuCachedSource2::Create(
+        const sp<DataSource> &source,
+        const char *cacheConfig,
+        bool disconnectAtHighwatermark) {
+    sp<NuCachedSource2> instance = new NuCachedSource2(
+            source, cacheConfig, disconnectAtHighwatermark);
+    Mutex::Autolock autoLock(instance->mLock);
+    (new AMessage(kWhatFetchMore, instance->mReflector))->post();
+    return instance;
 }
 
 status_t NuCachedSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
@@ -362,12 +371,12 @@ void NuCachedSource2::fetchInternal() {
         mCache->releasePage(page);
     } else if (n < 0) {
         mFinalStatus = n;
+
         if (n == ERROR_UNSUPPORTED || n == -EPIPE) {
             // These are errors that are not likely to go away even if we
             // retry, i.e. the server doesn't support range requests or similar.
             mNumRetriesLeft = 0;
         }
-
         ALOGE("source returned error %zd, %d retries left", n, mNumRetriesLeft);
         mCache->releasePage(page);
     } else {
@@ -581,6 +590,10 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
 
     ALOGV("readInternal offset %lld size %zu", (long long)offset, size);
 
+    //remove it for bug532797, keep this file same as google 20160219
+    //if (mFinalStatus == ERROR_UNSUPPORTED)
+    //    mFinalStatus = OK;
+
     Mutex::Autolock autoLock(mLock);
 
     // If we're disconnecting, return EOS and don't access *data pointer.
@@ -641,6 +654,10 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
 
 status_t NuCachedSource2::seekInternal_l(off64_t offset) {
     mLastAccessPos = offset;
+
+    //remove it for bug532797, keep this file same as google 20160219
+    //if (offset == 0 && mFinalStatus == ERROR_UNSUPPORTED)
+    //    mFinalStatus = OK;
 
     if (offset >= mCacheOffset
             && offset <= (off64_t)(mCacheOffset + mCache->totalSize())) {

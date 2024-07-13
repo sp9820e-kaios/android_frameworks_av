@@ -160,7 +160,17 @@ struct Parameters {
     int precaptureTriggerCounter;
 
     int takePictureCounter;
-
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    int brightness;
+    int iso;
+    int meteringmode;
+    int slowmotion;
+    int saturation;
+    int contrast;
+    int sensorRot;
+    int sensorOrient;
+    int perfectSkinlevel;
+#endif
     uint32_t previewCallbackFlags;
     bool previewCallbackOneShot;
     bool previewCallbackSurface;
@@ -169,6 +179,9 @@ struct Parameters {
     // Whether the jpeg stream is slower than 30FPS and can slow down preview.
     // When slowJpegMode is true, zslMode must be false to avoid slowing down preview.
     bool slowJpegMode;
+#ifdef CONFIG_CAMERA_SPRD_EIS
+    bool eisMode;
+#endif
 
     // Overall camera state
     enum State {
@@ -190,7 +203,11 @@ struct Parameters {
     static const unsigned int MAX_PREVIEW_HEIGHT = 1920;
     // Initial max preview/recording size bound
     static const int MAX_INITIAL_PREVIEW_WIDTH = 1920;
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    static const int MAX_INITIAL_PREVIEW_HEIGHT = 1088;
+#else
     static const int MAX_INITIAL_PREVIEW_HEIGHT = 1080;
+#endif
     // Aspect ratio tolerance
     static const CONSTEXPR float ASPECT_RATIO_TOLERANCE = 0.001;
     // Threshold for slow jpeg mode

@@ -51,6 +51,10 @@ private:
     int32_t mChannelCount;
     int32_t mSampleRate;
 
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    int32_t mBitsPerSample;
+#endif
+
     void initPorts();
     status_t initDecoder();
 

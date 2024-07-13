@@ -84,6 +84,11 @@ status_t SampleIterator::seekTo(uint32_t sampleIndex) {
 
     CHECK(sampleIndex < mStopChunkSampleIndex);
 
+    if (mSamplesPerChunk == 0) {
+        ALOGE("b/22802344");
+        return ERROR_MALFORMED;
+    }
+
     uint32_t chunk =
         (sampleIndex - mFirstChunkSampleIndex) / mSamplesPerChunk
         + mFirstChunk;
@@ -105,6 +110,11 @@ status_t SampleIterator::seekTo(uint32_t sampleIndex) {
 
         for (uint32_t i = 0; i < mSamplesPerChunk; ++i) {
             size_t sampleSize;
+            if (firstChunkSampleIndex + i >= mTable->mNumSampleSizes)
+            {
+                ALOGI("wrong sample count");
+                break;
+            }
             if ((err = getSampleSizeDirect(
                             firstChunkSampleIndex + i, &sampleSize)) != OK) {
                 ALOGE("getSampleSizeDirect return error");
@@ -287,7 +297,7 @@ status_t SampleIterator::getSampleSizeDirect(
 }
 
 status_t SampleIterator::findSampleTimeAndDuration(
-        uint32_t sampleIndex, uint32_t *time, uint32_t *duration) {
+        uint32_t sampleIndex, uint64_t *time, uint32_t *duration) {
     if (sampleIndex >= mTable->mNumSampleSizes) {
         return ERROR_OUT_OF_RANGE;
     }
@@ -306,9 +316,10 @@ status_t SampleIterator::findSampleTimeAndDuration(
         ++mTimeToSampleIndex;
     }
 
-    *time = mTTSSampleTime + mTTSDuration * (sampleIndex - mTTSSampleIndex);
-
-    *time += mTable->getCompositionTimeOffset(sampleIndex);
+    *time = mTTSDuration;
+    *time = *time * (sampleIndex - mTTSSampleIndex);
+    *time += mTTSSampleTime;
+    *time += (int32_t)mTable->getCompositionTimeOffset(sampleIndex);
 
     *duration = mTTSDuration;
 

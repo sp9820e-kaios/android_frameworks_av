@@ -181,6 +181,8 @@ public:
         }
 
         virtual bool isStreamActive(audio_stream_type_t stream, uint32_t inPastMs = 0) const;
+        virtual bool isAudioRecording();
+
         // return whether a stream is playing remotely, override to change the definition of
         //   local/remote playback, used for instance by notification manager to not make
         //   media players lose audio focus when not playing locally

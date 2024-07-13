@@ -355,7 +355,8 @@ WifiDisplaySource::PlaybackSession::PlaybackSession(
       mNetSession(netSession),
       mNotify(notify),
       mInterfaceAddr(interfaceAddr),
-      mHDCP(hdcp),
+     // mHDCP(hdcp),
+      mHDCP(NULL),
       mLocalRTPPort(-1),
       mWeAreDead(false),
       mPaused(false),
@@ -365,7 +366,11 @@ WifiDisplaySource::PlaybackSession::PlaybackSession(
       mPullExtractorPending(false),
       mPullExtractorGeneration(0),
       mFirstSampleTimeRealUs(-1ll),
-      mFirstSampleTimeUs(-1ll) {
+      mFirstSampleTimeUs(-1ll),
+      mUnusedParm(hdcp){
+    if (mUnusedParm==NULL) {
+        ALOGW("mUnusedParm!=NULL");
+    }
     if (path != NULL) {
         mMediaPath.setTo(path);
     }
@@ -388,7 +393,7 @@ status_t WifiDisplaySource::PlaybackSession::init(
     mMediaSender = new MediaSender(mNetSession, notify);
     looper()->registerHandler(mMediaSender);
 
-    mMediaSender->setHDCP(mHDCP);
+    //mMediaSender->setHDCP(mHDCP);
 
     status_t err = setupPacketizer(
             enableAudio,
@@ -949,10 +954,21 @@ status_t WifiDisplaySource::PlaybackSession::addSource(
     if (isVideo) {
         format->setString("mime", MEDIA_MIMETYPE_VIDEO_AVC);
         format->setInt32("store-metadata-in-buffers", true);
+#if 0
         format->setInt32("store-metadata-in-buffers-output", (mHDCP != NULL)
                 && (mHDCP->getCaps() & HDCPModule::HDCP_CAPS_ENCRYPT_NATIVE));
-        format->setInt32(
+#else
+        format->setInt32("store-metadata-in-buffers-output", true);
+
+#endif
+        if (SurfaceMediaSource::isGpuRgbModeEnabled()) {
+            format->setInt32(
                 "color-format", OMX_COLOR_FormatAndroidOpaque);
+        } else {
+            format->setInt32(
+                "color-format", OMX_SPRD_COLOR_FormatYVU420SemiPlanar);
+        }
+
         format->setInt32("profile-idc", profileIdc);
         format->setInt32("level-idc", levelIdc);
         format->setInt32("constraint-set", constraintSet);
@@ -1076,6 +1092,7 @@ status_t WifiDisplaySource::PlaybackSession::addAudioSource(bool usePCMAudio) {
             2 /* channelCount */);
 
     if (audioSource->initCheck() == OK) {
+        ALOGI("add audio source");
         return addSource(
                 false /* isVideo */, audioSource, false /* isRepeaterSource */,
                 usePCMAudio, 0 /* profileIdc */, 0 /* levelIdc */,

@@ -307,6 +307,7 @@ MyOggExtractor::MyOggExtractor(
       mSeekPreRollUs(seekPreRollUs),
       mFirstDataOffset(-1) {
     mCurrentPage.mNumSegments = 0;
+    mCurrentPage.mFlags       = 0;
 
     vorbis_info_init(&mVi);
     vorbis_comment_init(&mVc);
@@ -389,18 +390,18 @@ status_t MyOggExtractor::findPrevGranulePosition(
     ALOGV("prevPageOffset at %lld, pageOffset at %lld",
             (long long)prevPageOffset, (long long)pageOffset);
 
+    uint8_t flag = 0;
     for (;;) {
         Page prevPage;
         ssize_t n = readPage(prevPageOffset, &prevPage);
 
         if (n <= 0) {
-            return (status_t)n;
+            return (flag & 0x4) ? OK : (status_t)n;
         }
-
+        flag = prevPage.mFlags;
         prevPageOffset += n;
-
+        *granulePos = prevPage.mGranulePosition;
         if (prevPageOffset == pageOffset) {
-            *granulePos = prevPage.mGranulePosition;
             return OK;
         }
     }
@@ -693,7 +694,21 @@ status_t MyOggExtractor::_readNextPacket(MediaBuffer **out, bool calcVorbisTimes
             if (buffer != NULL) {
                 fullSize += buffer->range_length();
             }
-            MediaBuffer *tmp = new MediaBuffer(fullSize);
+            if (fullSize > 16 * 1024 * 1024) { // arbitrary limit of 16 MB packet size
+                if (buffer != NULL) {
+                    buffer->release();
+                }
+                ALOGE("b/36592202");
+                return ERROR_MALFORMED;
+            }
+            MediaBuffer *tmp = new (std::nothrow) MediaBuffer(fullSize);
+            if (tmp == NULL) {
+                if (buffer != NULL) {
+                    buffer->release();
+                }
+                ALOGE("b/36592202");
+                return ERROR_MALFORMED;
+            }
             if (buffer != NULL) {
                 memcpy(tmp->data(), buffer->data(), buffer->range_length());
                 tmp->set_range(0, buffer->range_length());
@@ -757,6 +772,7 @@ status_t MyOggExtractor::_readNextPacket(MediaBuffer **out, bool calcVorbisTimes
         CHECK_EQ(mNextLaceIndex, mCurrentPage.mNumSegments);
 
         mOffset += mCurrentPageSize;
+        uint8_t flag = mCurrentPage.mFlags;
         ssize_t n = readPage(mOffset, &mCurrentPage);
 
         if (n <= 0) {
@@ -767,7 +783,7 @@ status_t MyOggExtractor::_readNextPacket(MediaBuffer **out, bool calcVorbisTimes
 
             ALOGV("readPage returned %zd", n);
 
-            return n < 0 ? n : (status_t)ERROR_END_OF_STREAM;
+            return (n < 0 && !(flag & 0x4)) ? n : (status_t)ERROR_END_OF_STREAM;
         }
 
         mCurrentPageSamples =
@@ -1220,11 +1236,14 @@ static uint8_t *DecodeBase64(const char *s, size_t size, size_t *outSize) {
         }
     }
 
-    size_t outLen = 3 * size / 4 - padding;
-
-    *outSize = outLen;
+    // We divide first to avoid overflow. It's OK to do this because we
+    // already made sure that size % 4 == 0.
+    size_t outLen = (size / 4) * 3 - padding;
 
     void *buffer = malloc(outLen);
+    if (buffer == NULL) {
+        return NULL;
+    }
 
     uint8_t *out = (uint8_t *)buffer;
     size_t j = 0;
@@ -1243,10 +1262,10 @@ static uint8_t *DecodeBase64(const char *s, size_t size, size_t *outSize) {
         } else if (c == '/') {
             value = 63;
         } else if (c != '=') {
-            return NULL;
+            break;
         } else {
             if (i < n - padding) {
-                return NULL;
+                break;
             }
 
             value = 0;
@@ -1264,6 +1283,13 @@ static uint8_t *DecodeBase64(const char *s, size_t size, size_t *outSize) {
         }
     }
 
+    // Check if we exited the loop early.
+    if (j < outLen) {
+        free(buffer);
+        return NULL;
+    }
+
+    *outSize = outLen;
     return (uint8_t *)buffer;
 }
 

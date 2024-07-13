@@ -31,8 +31,10 @@
 
 #include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
+#include <cutils/properties.h>
 
 namespace android {
+int judge(int uid, const String16& name, int oprID, int oprType, const String16& param);
 
 Camera::Camera(int cameraId)
     : CameraBase(cameraId)
@@ -142,6 +144,24 @@ status_t Camera::startPreview()
     ALOGV("startPreview");
     sp <ICamera> c = mCamera;
     if (c == 0) return NO_INIT;
+    #ifdef USE_PROJECT_SEC
+    char value[PROPERTY_VALUE_MAX] = "";
+    String16 param;
+    property_get("service.project.sec", value, "0"); // Get disconnection error code
+    if(0 == strcmp(value, "1")){
+        int uid =IPCThreadState::self()->getCallingUid();
+        int permission = 1 ;
+        permission = judge(uid, String16("camera.camera"),8,0,param);
+        if ( permission > 0)
+        {
+            ALOGE("Camera:setPreviewDisplay allow");
+        }
+        else{
+            ALOGE("Camera:setPreviewDisplay reject");
+            return INVALID_OPERATION;
+        }
+    }
+    #endif
     return c->startPreview();
 }
 
@@ -234,6 +254,24 @@ status_t Camera::takePicture(int msgType)
     ALOGV("takePicture: 0x%x", msgType);
     sp <ICamera> c = mCamera;
     if (c == 0) return NO_INIT;
+    #ifdef USE_PROJECT_SEC
+    char value[PROPERTY_VALUE_MAX] = "";
+    String16 param;
+    property_get("service.project.sec", value, "0"); // Get disconnection error code
+    if(0 == strcmp(value, "1")){
+        int uid =IPCThreadState::self()->getCallingUid();
+        int permission = 1 ;
+        permission = judge(uid, String16("camera.camera"),8,0,param);
+        if ( permission > 0)
+        {
+              ALOGE("Camera:takePicture allow ");
+        }
+        else{
+              ALOGE("Camera:takePicture reject");
+              return INVALID_OPERATION;
+        }
+    }
+    #endif
     return c->takePicture(msgType);
 }
 

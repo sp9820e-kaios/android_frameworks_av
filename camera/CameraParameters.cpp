@@ -173,6 +173,29 @@ const char CameraParameters::FOCUS_MODE_CONTINUOUS_PICTURE[] = "continuous-pictu
 const char CameraParameters::LIGHTFX_LOWLIGHT[] = "low-light";
 const char CameraParameters::LIGHTFX_HDR[] = "high-dynamic-range";
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+// Values for brightness setting
+const char CameraParameters::KEY_BRIGHTNESS[] = "brightness";
+const char CameraParameters::KEY_SUPPORTED_BRIGHTNESS[] = "brightness-values";
+// Values for contrast settings.
+const char CameraParameters::KEY_CONTRAST[] = "contrast";
+const char CameraParameters::KEY_SUPPORTED_CONTRAST[] = "contrast-values";
+//Values for saturation settings.
+const char CameraParameters::KEY_SATURATION[] = "saturation";
+const char CameraParameters::KEY_SUPPORTED_SATURATION[] = "saturation-values";
+const char CameraParameters::KEY_SLOWMOTION[] = "slow-motion";
+const char CameraParameters::KEY_SUPPORTED_SLOWMOTION[] = "slow-motion-values";
+const char CameraParameters::KEY_METERING_MODE[] = "metering-mode";
+const char CameraParameters::KEY_SUPPORTED_METERING_MODE[] = "metering-mode-values";
+const char CameraParameters::KEY_SENSOR_ORIENT[] = "sensor-orient";
+const char CameraParameters::KEY_SENSOR_ROT[] = "sensor-rot";
+//Values for iso settings.
+const char CameraParameters::KEY_ISO[] = "iso";
+const char CameraParameters::KEY_SUPPORTED_ISO[] = "iso-values";
+const char CameraParameters::KEY_PERFECT_SKIN_LEVEL[] = "perfect-skin-level";
+const char CameraParameters::KEY_EOIS[] = "EOIS";
+
+#endif
 CameraParameters::CameraParameters()
                 : mMap()
 {
@@ -455,6 +478,28 @@ const char *CameraParameters::getPictureFormat() const
     return get(KEY_PICTURE_FORMAT);
 }
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+int CameraParameters::getSprdBrightNess() const
+{
+    return getInt(KEY_BRIGHTNESS);
+}
+void CameraParameters::setSprdBrightNess(int brightness)
+{
+    char str[32];
+    sprintf(str, "%d", brightness);
+    set(KEY_BRIGHTNESS, str);
+}
+int CameraParameters::getSprdPerfectSkinLevel() const
+{
+    return getInt(KEY_PERFECT_SKIN_LEVEL);
+}
+void CameraParameters::setSprdPerfectSkinLevel(int skinlevel)
+{
+    char str[32];
+    sprintf(str, "%d", skinlevel);
+    set(KEY_PERFECT_SKIN_LEVEL, str);
+}
+#endif
 void CameraParameters::dump() const
 {
     ALOGD("dump: mMap.size = %zu", mMap.size());

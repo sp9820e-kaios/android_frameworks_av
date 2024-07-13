@@ -37,6 +37,7 @@ LOCAL_STATIC_LIBRARIES := \
 
 LOCAL_C_INCLUDES := \
     frameworks/av/media/libmediaplayerservice \
+    frameworks/av/media/libmedia \
     frameworks/av/services/medialog \
     frameworks/av/services/audioflinger \
     frameworks/av/services/audiopolicy \
@@ -49,6 +50,12 @@ LOCAL_C_INCLUDES := \
     frameworks/av/services/soundtrigger \
     frameworks/av/services/radio \
     external/sonic
+
+ifeq ($(strip $(VOLTE_SERVICE_ENABLE)), true)
+LOCAL_SHARED_LIBRARIES += libVideoCallEngineService
+LOCAL_C_INCLUDES += frameworks/av/volte
+LOCAL_CFLAGS += -DMEDIA_VOLTE_ENABLE
+endif
 
 LOCAL_MODULE:= mediaserver
 LOCAL_32_BIT_ONLY := true

@@ -512,6 +512,15 @@ bool AudioPolicyService::isStreamActive(audio_stream_type_t stream, uint32_t inP
     return mAudioPolicyManager->isStreamActive(stream, inPastMs);
 }
 
+bool AudioPolicyService::isAudioRecording()
+{
+    if (mAudioPolicyManager == NULL) {
+        return 0;
+    }
+    Mutex::Autolock _l(mLock);
+    return mAudioPolicyManager->isAudioRecording();
+}
+
 bool AudioPolicyService::isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs) const
 {
     if (uint32_t(stream) >= AUDIO_STREAM_PUBLIC_CNT) {

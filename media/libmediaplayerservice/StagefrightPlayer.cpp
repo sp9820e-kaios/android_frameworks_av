@@ -156,6 +156,10 @@ status_t StagefrightPlayer::reset() {
     return OK;
 }
 
+void StagefrightPlayer::setNeedConsume(bool needConsume) {
+    ALOGE("setNeedConsume should not run here %d", needConsume);
+}
+
 status_t StagefrightPlayer::setLooping(int loop) {
     ALOGV("setLooping");
 

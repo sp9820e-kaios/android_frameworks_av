@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="picture">Picture</string>
+    <string name="switch_camera">Switch</string>
+    <string name="pause_camera">Pause</string>
+    <string name="resume_camera">Resume</string>
+    <string name="description_info">Info</string>
+    <string name="request_permission">This sample needs camera permission.</string>
+    <string name="camera_error">This device doesn\'t support Camera2 API.</string>
+</resources>

@@ -35,6 +35,13 @@
 
 namespace android {
 
+enum {
+    WAVE_FORMAT_PCM = 1,
+    WAVE_FORMAT_ALAW = 6,
+    WAVE_FORMAT_MULAW = 7,
+    WAVE_FORMAT_IMAADPCM = 0x11
+};
+
 struct AVIExtractor::AVISource : public MediaSource {
     AVISource(const sp<AVIExtractor> &extractor, size_t trackIndex);
 
@@ -69,6 +76,7 @@ struct AVIExtractor::MP3Splitter : public RefBase {
     void clear();
     void append(MediaBuffer *buffer);
     status_t read(MediaBuffer **buffer);
+    status_t readparam(int type, int16_t &param_value);
 
 protected:
     virtual ~MP3Splitter();
@@ -77,6 +85,7 @@ private:
     bool mFindSync;
     int64_t mBaseTimeUs;
     int64_t mNumSamplesRead;
+    int16_t nChannelnum;
     sp<ABuffer> mBuffer;
 
     bool resync();
@@ -101,12 +110,22 @@ AVIExtractor::AVISource::~AVISource() {
 }
 
 status_t AVIExtractor::AVISource::start(MetaData *params) {
+    if (params) {
+        ALOGI("%s, have MetaData: %p", __FUNCTION__, params);
+    }
+
     CHECK(!mBufferGroup);
 
     mBufferGroup = new MediaBufferGroup;
 
-    mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize));
-    mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize));
+    if(8 == mTrack.mBitsPerSample) {
+        mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize<<1));
+        mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize<<1));
+    } else {
+        mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize));
+        mBufferGroup->add_buffer(new MediaBuffer(mTrack.mMaxSampleSize));
+    }
+
     mSampleIndex = 0;
 
     const char *mime;
@@ -144,7 +163,8 @@ status_t AVIExtractor::AVISource::read(
 
     int64_t seekTimeUs;
     ReadOptions::SeekMode seekMode;
-    if (options && options->getSeekTo(&seekTimeUs, &seekMode)) {
+    if (options && options->getSeekTo(&seekTimeUs, &seekMode)
+        && mExtractor->mIndexType != NO_INDEX) {
         status_t err =
             mExtractor->getSampleIndexAtTime(
                     mTrackIndex, seekTimeUs, seekMode, &mSampleIndex);
@@ -158,14 +178,32 @@ status_t AVIExtractor::AVISource::read(
         }
     }
 
-    for (;;) {
+    for (int i=0;; i++) {
         if (mSplitter != NULL) {
             status_t err = mSplitter->read(buffer);
 
             if (err == OK) {
+		int16_t channel_data = 0;
+		int32_t channel_data_old = 0;
+		mSplitter->readparam(0 , channel_data);
+
+		mTrack.mMeta->findInt32(kKeyChannelCount, &channel_data_old);
+		if ( channel_data_old != channel_data)
+		{
+			mTrack.mMeta->setInt32(kKeyChannelCount, channel_data);
+		}
                 break;
             } else if (err != -EAGAIN) {
                 return err;
+            }
+            else  /* (err == -EAGAIN) */
+            {
+                if( i>100)
+                {
+                    // to avoid dead loop.
+                    ALOGE("AVIExtractor, mSplitter read() failed > 100 times, stop. \n");
+                    return ERROR_END_OF_STREAM;
+                }
             }
         }
 
@@ -179,19 +217,72 @@ status_t AVIExtractor::AVISource::read(
         ++mSampleIndex;
 
         if (err != OK) {
-            return ERROR_END_OF_STREAM;
+            if( mSampleIndex < mTrack.mSamples.size() ) {
+                continue;
+            } else {
+                return ERROR_END_OF_STREAM;
+            }
         }
 
         MediaBuffer *out;
         CHECK_EQ(mBufferGroup->acquire_buffer(&out), (status_t)OK);
 
+        if(size > mTrack.mMaxSampleSize)
+        {
+            size = mTrack.mMaxSampleSize;//buffer is not enough
+        }
         ssize_t n = mExtractor->mDataSource->readAt(offset, out->data(), size);
 
         if (n < (ssize_t)size) {
+#if 0
+	     int fd = 0;
+            int64_t offsetTemp = 0;
+            int64_t length = 0;
+            mExtractor->mDataSource->getFd(&fd, &offsetTemp);
+            mExtractor->mDataSource->getSize(&length);
+            if(fd > 0 && offset + size > length) {
+                ALOGE("read error, n: %d, size: %d, offset: %lld, file size: %lld, fd: %d", n, size, offset, length, fd);
+                return ERROR_END_OF_STREAM;
+            }
+#else
+            int64_t length = 0;
+            mExtractor->mDataSource->getSize(&length);
+            if((int64_t)(offset + size) > length) {
+                ALOGE("read error, n: %zd, size: %zd, offset: %lld, file size: %lld", n, size, (long long)offset, (long long)length);
+                out->release();
+                out = NULL;
+                return ERROR_END_OF_STREAM;
+            }
+#endif
             return n < 0 ? (status_t)n : (status_t)ERROR_MALFORMED;
         }
 
-        out->set_range(0, size);
+        const char *mime;
+        CHECK(mTrack.mMeta->findCString(kKeyMIMEType, &mime));
+
+        if ( !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW)  && (mTrack.mBitsPerSample == 8)) {
+            // Convert 8-bit unsigned samples to 16-bit signed.
+            MediaBuffer *tmp;
+            CHECK_EQ(mBufferGroup->acquire_buffer(&tmp), (status_t)OK);
+
+            // The new buffer holds the sample number of samples, but each
+            // one is 2 bytes wide.
+            tmp->set_range(0, 2 * n);
+
+            int16_t *dst = (int16_t *)tmp->data();
+            const uint8_t *src = (const uint8_t *)out->data();
+            ssize_t numBytes = n;
+
+            while (numBytes-- > 0) {
+                *dst++ = ((int16_t)(*src) - 128) * 256;
+                ++src;
+            }
+
+            out->release();
+            out = tmp;
+        }else {
+            out->set_range(0, size);
+        }
 
         out->meta_data()->setInt64(kKeyTime, timeUs);
 
@@ -338,10 +429,13 @@ status_t AVIExtractor::MP3Splitter::read(MediaBuffer **out) {
     size_t frameSize;
     int sampleRate;
     int numSamples;
+    int channel_mode;
     if (!GetMPEGAudioFrameSize(
-                header, &frameSize, &sampleRate, NULL, NULL, &numSamples)) {
-        return ERROR_MALFORMED;
+                header, &frameSize, &sampleRate, &channel_mode, NULL, &numSamples)) {
+        clear();
+        return -EAGAIN;
     }
+   nChannelnum = channel_mode ;
 
     if (mBuffer->size() < frameSize) {
         return -EAGAIN;
@@ -361,6 +455,17 @@ status_t AVIExtractor::MP3Splitter::read(MediaBuffer **out) {
     *out = mbuf;
 
     return OK;
+}
+
+status_t AVIExtractor::MP3Splitter::readparam(int type,int16_t & param_value)
+{
+    if (type) {
+        ALOGI("%s, type: %d", __FUNCTION__, type);
+    }
+    param_value = nChannelnum;
+
+   return	OK;
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -387,6 +492,9 @@ sp<MediaSource> AVIExtractor::getTrack(size_t index) {
 
 sp<MetaData> AVIExtractor::getTrackMetaData(
         size_t index, uint32_t flags) {
+    if (flags) {
+        ALOGI("%s, type: %d", __FUNCTION__, flags);
+    }
     return index < mTracks.size() ? mTracks.editItemAt(index).mMeta : NULL;
 }
 
@@ -400,19 +508,93 @@ sp<MetaData> AVIExtractor::getMetaData() {
     return meta;
 }
 
+uint32_t AVIExtractor::flags() const {
+    if(mIndexType == NO_INDEX) //don't support seek if no index in broken files
+    {
+        return CAN_PAUSE;
+    }
+    else
+    {
+        return MediaExtractor::flags();
+    }
+}
+
+
 status_t AVIExtractor::parseHeaders() {
     mTracks.clear();
     mMovieOffset = 0;
     mFoundIndex = false;
     mOffsetsAreAbsolute = false;
+    mIndexType = NO_INDEX;
 
-    ssize_t res = parseChunk(0ll, -1ll);
+    //ssize_t res = parseChunk(0ll, -1ll);
+    off64_t dataSize = 0;
+    status_t err = mDataSource->getSize(&dataSize);
+    if(err == ERROR_UNSUPPORTED)
+    {
+        dataSize = -1;
+    }
+    else if(err != OK)
+    {
+        return err;
+    }
+
+    ssize_t res = parseChunk(0ll, dataSize);
 
     if (res < 0) {
         return (status_t)res;
     }
 
-    if (mMovieOffset == 0ll || !mFoundIndex) {
+    if(mIndexType == NO_INDEX)
+    {
+        ALOGV("NO index existed!");
+        mOffsetsAreAbsolute = true;
+        //init all track's first sample position to movi's first sample position.
+        for (size_t i = 0; i < mTracks.size(); ++i) {
+            Track *track = &mTracks.editItemAt(i);
+            track->mCurSamplePos = mMovieOffset + 12;
+        }
+    }
+    //cut from parseindex()
+    for (size_t i = 0; i < mTracks.size(); ++i) {
+        Track *track = &mTracks.editItemAt(i);
+        const char *tmp;
+        CHECK(track->mMeta->findCString(kKeyMIMEType, &tmp));
+
+        AString mime = tmp;
+
+        if (!strncasecmp("video/", mime.c_str(), 6)) {
+            if (track->mThumbnailSampleIndex >= 0) {
+                int64_t thumbnailTimeUs;
+
+                if ((status_t)OK !=
+                        (err = getSampleTime(i, track->mThumbnailSampleIndex,
+                                             &thumbnailTimeUs))) {
+                    ALOGE("getSampleTime failed(%d)", err);
+                    return err;
+                }
+
+                track->mMeta->setInt64(kKeyThumbnailTime, thumbnailTimeUs);
+            }
+
+            err = OK;
+
+            if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_MPEG4)) {
+                if( OK != addMPEG4CodecSpecificData(i) )
+                {
+                    ALOGE("parseHeaders, addMPEG4CodecSpecificData failed, trackidx=%zd",i);
+                }
+            } else if (!strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_AVC)) {
+                err = addH264CodecSpecificData(i);
+            }
+
+            if (err != OK) {
+                return err;
+            }
+        }
+    }
+
+    if (mMovieOffset == 0ll/* || !mFoundIndex*/) {
         return ERROR_MALFORMED;
     }
 
@@ -435,7 +617,8 @@ ssize_t AVIExtractor::parseChunk(off64_t offset, off64_t size, int depth) {
     uint32_t chunkSize = U32LE_AT(&tmp[4]);
 
     if (size >= 0 && chunkSize + 8 > size) {
-        return ERROR_MALFORMED;
+        //return ERROR_MALFORMED;
+        chunkSize = size - 8;
     }
 
     static const char kPrefix[] = "                              ";
@@ -459,7 +642,7 @@ ssize_t AVIExtractor::parseChunk(off64_t offset, off64_t size, int depth) {
 
         ALOGV("%s offset 0x%08llx LIST of '%c%c%c%c', size %d",
              prefix,
-             offset,
+             (unsigned long long)offset,
              (char)(subFourcc >> 24),
              (char)((subFourcc >> 16) & 0xff),
              (char)((subFourcc >> 8) & 0xff),
@@ -488,7 +671,7 @@ ssize_t AVIExtractor::parseChunk(off64_t offset, off64_t size, int depth) {
     } else {
         ALOGV("%s offset 0x%08llx CHUNK '%c%c%c%c'",
              prefix,
-             offset,
+             (unsigned long long)offset,
              (char)(fourcc >> 24),
              (char)((fourcc >> 16) & 0xff),
              (char)((fourcc >> 8) & 0xff),
@@ -511,12 +694,30 @@ ssize_t AVIExtractor::parseChunk(off64_t offset, off64_t size, int depth) {
 
             case FOURCC('i', 'd', 'x', '1'):
             {
-                err = parseIndex(offset + 8, chunkSize);
+                if(mIndexType == NO_INDEX) //IF indx found, don't care idx1
+                {
+                    err = parseIdx1(offset + 8, chunkSize);
+                    mIndexType = IDX1;
+                }
+                break;
+            }
+            case FOURCC('i', 'n', 'd', 'x'):
+            {
+                //don't check return values, since broken file may miss some std index
+                parseIndx(offset, chunkSize + 8);
+                mIndexType = INDX;
                 break;
             }
 
             default:
                 break;
+        }
+
+        if(((tmp[0] == 'i') && tmp[1] == 'x') ||
+           ((tmp[2] == 'i') && tmp[3] == 'x'))
+        {
+            parseIndx(offset, chunkSize + 8);
+            mIndexType = INDX;
         }
 
         if (err != OK) {
@@ -571,15 +772,32 @@ static const char *GetMIMETypeForHandler(uint32_t handler) {
         case FOURCC('X', 'v', 'i', 'D'):
         case FOURCC('x', 'v', 'i', 'd'):
         case FOURCC('X', 'V', 'I', 'X'):
+        case FOURCC('f', 'f', 'd', 's'):
+        case FOURCC('y','v','1','2'):
             return MEDIA_MIMETYPE_VIDEO_MPEG4;
 
         // from http://wiki.multimedia.cx/index.php?title=H264
         case FOURCC('a', 'v', 'c', '1'):
         case FOURCC('d', 'a', 'v', 'c'):
         case FOURCC('x', '2', '6', '4'):
+        case FOURCC('h', '2', '6', '4'):
         case FOURCC('H', '2', '6', '4'):
         case FOURCC('v', 's', 's', 'h'):
             return MEDIA_MIMETYPE_VIDEO_AVC;
+
+        case FOURCC('h', '2', '6', '3'):
+        case FOURCC('H', '2', '6', '3'):
+        case FOURCC('F','L','V','1'):
+            return MEDIA_MIMETYPE_VIDEO_H263;
+
+        case FOURCC('m', 'j', 'p', 'g'):
+        case FOURCC('M', 'J', 'P', 'G'):
+            return MEDIA_MIMETYPE_VIDEO_MJPG;
+        // Support mime type of VP80.
+        /** SPRD: add { */
+        case FOURCC('V', 'P', '8', '0'):
+            return MEDIA_MIMETYPE_VIDEO_VP8;
+        /** SPRD: add } */
 
         default:
             return NULL;
@@ -606,17 +824,19 @@ status_t AVIExtractor::parseStreamHeader(off64_t offset, size_t size) {
 
     uint32_t type = U32_AT(data);
     uint32_t handler = U32_AT(&data[4]);
-    uint32_t flags = U32LE_AT(&data[8]);
+    //uint32_t flags = U32LE_AT(&data[8]);
 
     sp<MetaData> meta = new MetaData;
 
     uint32_t rate = U32LE_AT(&data[20]);
     uint32_t scale = U32LE_AT(&data[24]);
+    uint32_t length = U32LE_AT(&data[32]);
 
     uint32_t sampleSize = U32LE_AT(&data[44]);
 
     const char *mime = NULL;
     Track::Kind kind = Track::OTHER;
+    int32_t maxSampleSize = 0;
 
     if (type == FOURCC('v', 'i', 'd', 's')) {
         mime = GetMIMETypeForHandler(handler);
@@ -634,12 +854,14 @@ status_t AVIExtractor::parseStreamHeader(off64_t offset, size_t size) {
         }
 
         kind = Track::VIDEO;
+        maxSampleSize = AVI_VIDEO_SAMPLE_MAX_SIZE;
     } else if (type == FOURCC('a', 'u', 'd', 's')) {
         if (mime && strncasecmp(mime, "audio/", 6)) {
             return ERROR_MALFORMED;
         }
 
         kind = Track::AUDIO;
+        maxSampleSize = AVI_AUDIO_SAMPLE_MAX_SIZE;
     }
 
     if (!mime) {
@@ -647,6 +869,18 @@ status_t AVIExtractor::parseStreamHeader(off64_t offset, size_t size) {
     }
 
     meta->setCString(kKeyMIMEType, mime);
+
+    //set duration and maxsamplesize first anyway, may be changed in parseIndex()
+    if(scale ==0)
+    {
+        scale = 1;
+    }
+    if(rate ==0)
+    {
+        rate = 1;
+    }
+    meta->setInt64(kKeyDuration, (int64_t)(length * 1000000ll * rate / scale));
+    meta->setInt32(kKeyMaxInputSize, maxSampleSize);
 
     mTracks.push();
     Track *track = &mTracks.editItemAt(mTracks.size() - 1);
@@ -659,9 +893,11 @@ status_t AVIExtractor::parseStreamHeader(off64_t offset, size_t size) {
     track->mNumSyncSamples = 0;
     track->mThumbnailSampleSize = 0;
     track->mThumbnailSampleIndex = -1;
-    track->mMaxSampleSize = 0;
+    track->mMaxSampleSize = maxSampleSize;
     track->mAvgChunkSize = 1.0;
     track->mFirstChunkSize = 0;
+    track->mCurSamplePos = 0;
+    track->mBitsPerSample = 0;
 
     return OK;
 }
@@ -695,22 +931,70 @@ status_t AVIExtractor::parseStreamFormat(off64_t offset, size_t size) {
     const uint8_t *data = buffer->data();
 
     if (isVideo) {
+        const char *mime = NULL;
         uint32_t width = U32LE_AT(&data[4]);
         uint32_t height = U32LE_AT(&data[8]);
+        uint32_t handler = U32_AT(&data[16]);
+
+        mime = GetMIMETypeForHandler(handler);
+        if ((!mime)||(mime && strncasecmp(mime, "video/", 6))) {
+            ALOGI("strh Unsupported video format '%c%c%c%c'",
+                 (char)(handler >> 24),
+                 (char)((handler >> 16) & 0xff),
+                 (char)((handler >> 8) & 0xff),
+                 (char)(handler & 0xff));
+        }else{
+            track->mMeta->setCString(kKeyMIMEType, mime);
+        }
 
         track->mMeta->setInt32(kKeyWidth, width);
         track->mMeta->setInt32(kKeyHeight, height);
     } else {
         uint32_t format = U16LE_AT(data);
-
-        if (format == 0x55) {
-            track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
-        } else {
-            ALOGW("Unsupported audio format = 0x%04x", format);
-        }
-
         uint32_t numChannels = U16LE_AT(&data[2]);
         uint32_t sampleRate = U32LE_AT(&data[4]);
+        uint32_t blockAlign = U16LE_AT(&data[12]);
+        uint32_t bitsPerSample = U16LE_AT(&data[14]);
+
+        switch(format){
+            case 0x55:
+            case 0x50:
+                track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_MPEG);
+                break;
+            case WAVE_FORMAT_PCM:
+                if( (16 == bitsPerSample) || (8 == bitsPerSample) ){
+                    track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
+                    track->mBitsPerSample = bitsPerSample;
+                }else{
+                    ALOGW("Unsupported WAVE_FORMAT_PCM but wrong bits = %d", bitsPerSample);
+                }
+                break;
+            case WAVE_FORMAT_ALAW:
+                if(8 == bitsPerSample){
+                    track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_G711_ALAW);
+                 }else{
+                    ALOGW("Unsupported WAVE_FORMAT_ALAW but wrong bits = %d", bitsPerSample);
+                }
+                break;
+            case WAVE_FORMAT_MULAW:
+                if(8 == bitsPerSample){
+                    track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_G711_MLAW);
+                }else{
+                    ALOGW("Unsupported WAVE_FORMAT_MULAW but wrong bits = %d", bitsPerSample);
+                }
+                break;
+            case WAVE_FORMAT_IMAADPCM:
+                if(4 == bitsPerSample){
+                    track->mMeta->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_IMAADPCM);
+                    track->mMeta->setInt32(kKeyBlockAlign, blockAlign);
+                }else{
+                    ALOGW("Unsupported WAVE_FORMAT_IMAADPCM but wrong bits = 0x%04x", bitsPerSample);
+                }
+                break;
+             default:
+                ALOGW("Unsupported audio format = 0x%04x", format);
+                break;
+        };
 
         track->mMeta->setInt32(kKeyChannelCount, numChannels);
         track->mMeta->setInt32(kKeySampleRate, sampleRate);
@@ -728,6 +1012,7 @@ bool AVIExtractor::IsCorrectChunkType(
         case Track::VIDEO:
         {
             if (chunkBase != FOURCC(0, 0, 'd', 'c')
+                    && chunkBase != FOURCC(0, 0, 's', 'b')
                     && chunkBase != FOURCC(0, 0, 'd', 'b')) {
                 return false;
             }
@@ -764,28 +1049,30 @@ bool AVIExtractor::IsCorrectChunkType(
     return true;
 }
 
-status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
-    if ((size % 16) != 0) {
+status_t AVIExtractor::parseIdx1(off64_t offset, size_t size) {
+    /*if ((size % 16) != 0) {
         return ERROR_MALFORMED;
-    }
+    }*/
 
     sp<ABuffer> buffer = new ABuffer(size);
     ssize_t n = mDataSource->readAt(offset, buffer->data(), buffer->size());
 
     if (n < (ssize_t)size) {
-        return n < 0 ? (status_t)n : ERROR_MALFORMED;
+        //return n < 0 ? (status_t)n : ERROR_MALFORMED;
     }
-
     const uint8_t *data = buffer->data();
 
-    while (size > 0) {
+    while (n >= 16) {
         uint32_t chunkType = U32_AT(data);
 
         uint8_t hi = chunkType >> 24;
         uint8_t lo = (chunkType >> 16) & 0xff;
 
         if (hi < '0' || hi > '9' || lo < '0' || lo > '9') {
-            return ERROR_MALFORMED;
+//            return ERROR_MALFORMED;
+            data += 16;
+            n -= 16;
+            continue;
         }
 
         size_t trackIndex = 10 * (hi - '0') + (lo - '0');
@@ -802,7 +1089,7 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
 
         if (track->mKind == Track::OTHER) {
             data += 16;
-            size -= 16;
+            n -= 16;
             continue;
         }
 
@@ -822,6 +1109,15 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
         info->mOffset = offset;
         info->mIsKey = (flags & 0x10) != 0;
 
+        if(track->mSamples.size() > 1){
+            track->mLengthTotal += track->mPreChunkSize;
+        }else{
+            track->mLengthTotal = 0;
+        }
+
+        track->mPreChunkSize = chunkSize;
+        info->mLengthTotal = track->mLengthTotal;
+
         if (info->mIsKey) {
             static const size_t kMaxNumSyncSamplesToScan = 20;
 
@@ -838,7 +1134,7 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
         }
 
         data += 16;
-        size -= 16;
+        n -= 16;
     }
 
     if (!mTracks.isEmpty()) {
@@ -864,7 +1160,8 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
     for (size_t i = 0; i < mTracks.size(); ++i) {
         Track *track = &mTracks.editItemAt(i);
 
-        if (track->mBytesPerSample > 0) {
+        if (Track::AUDIO==track->mKind){
+            if(track->mBytesPerSample > 0) {
             // Assume all chunks are roughly the same size for now.
 
             // Compute the avg. size of the first 128 chunks (if there are
@@ -877,7 +1174,7 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
 
             double avgChunkSize = 0;
             size_t j;
-            for (j = 0; j <= numSamplesToAverage; ++j) {
+            for (j = 0; j < numSamplesToAverage; ++j) {
                 off64_t offset;
                 size_t size;
                 bool isKey;
@@ -900,20 +1197,33 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
                 avgChunkSize += size;
             }
 
-            avgChunkSize /= numSamplesToAverage;
+            if (numSamplesToAverage > 1) {
+                avgChunkSize /= (numSamplesToAverage - 1);
+            }
 
             track->mAvgChunkSize = avgChunkSize;
+        }else{
+            continue;
+            }
         }
 
         int64_t durationUs;
+        /* SPRD: modify code for bug 522420. */
+        /*
         CHECK_EQ((status_t)OK,
                  getSampleTime(i, track->mSamples.size() - 1, &durationUs));
-
-        ALOGV("track %d duration = %.2f secs", i, durationUs / 1E6);
+        */
+        status_t error = getSampleTime(i, track->mSamples.size() - 1, &durationUs);
+        if (error != (status_t)OK){
+            return error;
+        }
+        /* @} */
+        ALOGV("track %zu duration = %.2f secs", i, durationUs / 1E6);
 
         track->mMeta->setInt64(kKeyDuration, durationUs);
         track->mMeta->setInt32(kKeyMaxInputSize, track->mMaxSampleSize);
 
+        /*
         const char *tmp;
         CHECK(track->mMeta->findCString(kKeyMIMEType, &tmp));
 
@@ -941,12 +1251,124 @@ status_t AVIExtractor::parseIndex(off64_t offset, size_t size) {
                 return err;
             }
         }
+        */
     }
 
     mFoundIndex = true;
 
     return OK;
 }
+
+status_t AVIExtractor::parseIndx(off64_t offset, size_t size) {
+
+    if(size < 32) return ERROR_MALFORMED;
+
+    sp<ABuffer> buffer = new ABuffer(size);
+    ssize_t n = mDataSource->readAt(offset, buffer->data(), buffer->size());
+
+    if (n < (ssize_t)size) {
+        return n < 0 ? (status_t)n : ERROR_MALFORMED;
+    }
+
+    const uint8_t *data = buffer->data();
+    Track *track = &mTracks.editItemAt(mTracks.size() - 1); //directly after strh&strf
+    uint32_t sizePerIndexEntry   = U16LE_AT(&data[8]) * 4;
+    uint8_t indextype      = data[11];
+    uint32_t entriesInUse  = U32LE_AT(&data[12]);
+    off64_t  baseoffset    = U64LE_AT(&data[20]);
+
+    if(!sizePerIndexEntry) return ERROR_MALFORMED;
+
+    uint32_t maxEntries = (size - 32)/sizePerIndexEntry;
+    if(entriesInUse > maxEntries)
+    {
+        entriesInUse = maxEntries;
+    }
+
+#define AVI_INDEX_OF_INDEXES  0x00
+#define AVI_INDEX_OF_CHUNKS   0x01
+
+    mOffsetsAreAbsolute = true;
+    data += 32; //step into aIndex[]
+
+    if(indextype == AVI_INDEX_OF_CHUNKS)
+    {
+        double avgChunkSize = 0;
+
+        for(size_t i=0; i<entriesInUse; i++)
+        {
+            track->mSamples.push();
+            SampleInfo *info =
+                &track->mSamples.editItemAt(track->mSamples.size() - 1);
+            info->mOffset = (uint32_t)baseoffset + U32LE_AT(data) - 8;//need to point ##wb ##dc
+
+            size_t chunkSize = U32LE_AT(&data[4]);
+            info->mIsKey  = ((int32_t)chunkSize) > 0;//bit31 indicate keyframe
+
+            chunkSize = chunkSize & 0x7fffffff;
+            if (chunkSize > track->mMaxSampleSize)
+            {
+		ALOGE("parse Indx track->maxSize:%zd, size:%zu", track->mMaxSampleSize, chunkSize );
+                track->mMaxSampleSize = chunkSize;
+		track->mMeta->setInt32(kKeyMaxInputSize, track->mMaxSampleSize);
+            }
+
+            if(track->mSamples.size() > 1){
+                track->mLengthTotal += track->mPreChunkSize;
+            }else{
+                track->mLengthTotal = 0;
+            }
+
+            track->mPreChunkSize = chunkSize;
+            info->mLengthTotal = track->mLengthTotal;
+            if(track->mBytesPerSample > 0)
+            ALOGV("parseIndx, num=%zu, chunkSize=%zu, mLengthTotal=%d",i, chunkSize, info->mLengthTotal);
+
+            if (info->mIsKey) {
+                static const size_t kMaxNumSyncSamplesToScan = 20;
+
+                if (track->mNumSyncSamples < kMaxNumSyncSamplesToScan) {
+                    if (chunkSize > track->mThumbnailSampleSize) {
+                        track->mThumbnailSampleSize = chunkSize;
+
+                        track->mThumbnailSampleIndex =
+                        track->mSamples.size() - 1;
+                    }
+                }
+                ++track->mNumSyncSamples;
+            }
+
+            data += sizePerIndexEntry;
+            if (i == 0) {
+                track->mFirstChunkSize = size;
+                continue;
+            }
+            avgChunkSize += chunkSize;
+        }
+
+        if (entriesInUse > 1) {
+            avgChunkSize /= entriesInUse;
+        }
+        track->mAvgChunkSize = avgChunkSize;
+    }
+    else if(indextype == AVI_INDEX_OF_INDEXES)
+    {
+        for(size_t i=0; i<entriesInUse; i++)
+        {
+            off64_t stdIndexOffset = U64LE_AT(data);
+            uint32_t stdIndexSize  = U32LE_AT(&data[8]);
+            status_t err = parseIndx(stdIndexOffset, stdIndexSize);
+            if(err)
+            {
+                return err;
+            }
+            data += sizePerIndexEntry;
+        }
+    }
+
+    return OK;
+}
+
 
 static size_t GetSizeWidth(size_t x) {
     size_t n = 1;
@@ -958,19 +1380,56 @@ static size_t GetSizeWidth(size_t x) {
 }
 
 static uint8_t *EncodeSize(uint8_t *dst, size_t x) {
+
+#if 1
+    size_t  size_len = GetSizeWidth(x);
+    uint8_t  cnt_7bit_rightshift = 0;
+
+    ALOGI("EncodeSize,  x=0x%x, size_len=%d",
+        (uint32_t)x,  (uint32_t)size_len
+    );
+
+    // if use several bytes to save the length,  the bytes shold be in big endia mode.
+    // save the hightest 7bits in the first byte with bit7=1, which means the lower 7bits  are saved in the followed byte.
+    // save the higher 7bits in the followed byte with bit7=1.
+    // save the lowest 7bits in the lastest byte with bit7=0.
+    dst += size_len;
+    while(cnt_7bit_rightshift < size_len)
+    {
+        dst--;
+        // save the latest bytes firstly.
+        if( cnt_7bit_rightshift == 0 ) {
+            *dst = (x & 0x7f); }
+        else{
+            *dst = (x & 0x7f) | 0x80;
+        }
+
+        x >>= 7;
+        cnt_7bit_rightshift++;
+    }
+    dst += size_len;
+
+    ALOGI("EncodeSize,  x=0x%x,  [0,1]=0x%x,%x",
+        (uint32_t)x,  *(dst-2), *(dst-1)
+    );
+
+#else
     while (x > 127) {
         *dst++ = (x & 0x7f) | 0x80;
         x >>= 7;
     }
     *dst++ = x;
+#endif
+
     return dst;
 }
 
 sp<ABuffer> MakeMPEG4VideoCodecSpecificData(const sp<ABuffer> &config) {
     size_t len1 = config->size() + GetSizeWidth(config->size()) + 1;
-    size_t len2 = len1 + GetSizeWidth(len1) + 1 + 13;
-    size_t len3 = len2 + GetSizeWidth(len2) + 1 + 3;
-
+    /* SPRD: modify for Video of AVI displaying divisive picture in Gallery{ */
+    size_t len2 = len1 + GetSizeWidth(len1 + 13) + 1 + 13;
+    size_t len3 = len2 + GetSizeWidth(len2 + 3) + 1 + 3;
+    /* SPRD: modify } */
     sp<ABuffer> csd = new ABuffer(len3);
     uint8_t *dst = csd->data();
     *dst++ = 0x03;
@@ -1003,11 +1462,24 @@ status_t AVIExtractor::addMPEG4CodecSpecificData(size_t trackIndex) {
     size_t size;
     bool isKey;
     int64_t timeUs;
-    status_t err =
-        getSampleInfo(trackIndex, 0, &offset, &size, &isKey, &timeUs);
 
-    if (err != OK) {
-        return err;
+    size_t sampleIndex = 0;
+    for (;;)
+    {
+        status_t err = getSampleInfo(trackIndex, sampleIndex, &offset, &size, &isKey, &timeUs);
+
+        if (err != OK) {
+            return err;
+        }
+
+        if (size <= 0)
+        {
+            sampleIndex ++;
+        }
+        else
+        {
+            break;
+        }
     }
 
     sp<ABuffer> buffer = new ABuffer(size);
@@ -1109,14 +1581,85 @@ status_t AVIExtractor::getSampleInfo(
         return -ERANGE;
     }
 
-    const Track &track = mTracks.itemAt(trackIndex);
+    Track *track = &mTracks.editItemAt(trackIndex);
+    uint32_t chunkType;
+    if (sampleIndex >= track->mSamples.size()) {
+        if(mIndexType == NO_INDEX)//parse movi data to get index info
+        {
+            while(sampleIndex >= track->mSamples.size()){
+                uint8_t tmp[12];
+                ssize_t n = mDataSource->readAt(track->mCurSamplePos, tmp, 8);
+                if (n < 8) {
+                    return (n < 0) ? n : (ssize_t)ERROR_MALFORMED;
+                }
+                chunkType = U32_AT(tmp);
 
-    if (sampleIndex >= track.mSamples.size()) {
-        return -ERANGE;
+                if(chunkType == FOURCC('L', 'I', 'S', 'T'))
+                {
+                    track->mCurSamplePos += 12; //skip LIST rec
+                    continue;
+                }
+
+                uint8_t hi = chunkType >> 24;
+                uint8_t lo = (chunkType >> 16) & 0xff;
+
+                if (hi < '0' || hi > '9' || lo < '0' || lo > '9') {
+                return ERROR_MALFORMED;
+                }
+
+                size_t tmpIndex = 10 * (hi - '0') + (lo - '0');
+
+                if (tmpIndex >= mTracks.size()) {
+                    return ERROR_MALFORMED;
+                }
+
+                uint32_t sampleSize = U32LE_AT(&tmp[4]);
+                if(trackIndex != tmpIndex)
+                {
+                    track->mCurSamplePos += (sampleSize + 8);
+                    if(track->mCurSamplePos & 1)//careful
+                    {
+                        ++track->mCurSamplePos;
+                    }
+                    continue;
+                }
+                //new sample
+                track->mSamples.push();
+                 if(track->mSamples.size() > 1){
+                    track->mLengthTotal += track->mPreChunkSize;
+                }else{
+                    track->mLengthTotal = 0;
+                }
+                track->mPreChunkSize = sampleSize;
+
+                SampleInfo *info =
+                    &track->mSamples.editItemAt(track->mSamples.size() - 1);
+                info->mOffset = track->mCurSamplePos;
+                info->mIsKey = true;//don't know.
+                info->mLengthTotal = track->mLengthTotal;
+
+                track->mCurSamplePos += (sampleSize + 8);
+                if(track->mCurSamplePos & 1)
+                {
+                    ++track->mCurSamplePos;
+                }
+
+                if(sampleIndex == 0)
+                {
+                    track->mFirstChunkSize = sampleSize;
+                    track->mAvgChunkSize = sampleSize; //don't care it
+                }
+            }
+            //TODO: actually don't need to execute the following data, should return now?
+        }
+        else
+        {
+            return -ERANGE;
+
+        }
     }
 
-    const SampleInfo &info = track.mSamples.itemAt(sampleIndex);
-
+    const SampleInfo &info = track->mSamples.itemAt(sampleIndex);
     if (!mOffsetsAreAbsolute) {
         *offset = info.mOffset + mMovieOffset + 8;
     } else {
@@ -1132,9 +1675,9 @@ status_t AVIExtractor::getSampleInfo(
         return n < 0 ? (status_t)n : (status_t)ERROR_MALFORMED;
     }
 
-    uint32_t chunkType = U32_AT(tmp);
+    chunkType = U32_AT(tmp);
 
-    if (!IsCorrectChunkType(trackIndex, track.mKind, chunkType)) {
+    if (!IsCorrectChunkType(trackIndex, track->mKind, chunkType)) {
         return ERROR_MALFORMED;
     }
 
@@ -1143,19 +1686,24 @@ status_t AVIExtractor::getSampleInfo(
 
     *isKey = info.mIsKey;
 
-    if (track.mBytesPerSample > 0) {
+    if ( (Track::AUDIO==track->mKind)&&(track->mBytesPerSample > 0) ) {
+#if 0
         size_t sampleStartInBytes;
         if (sampleIndex == 0) {
             sampleStartInBytes = 0;
         } else {
             sampleStartInBytes =
-                track.mFirstChunkSize + track.mAvgChunkSize * (sampleIndex - 1);
+                track->mFirstChunkSize + track->mAvgChunkSize * (sampleIndex - 1);
         }
 
-        sampleIndex = sampleStartInBytes / track.mBytesPerSample;
+        sampleIndex = sampleStartInBytes / track->mBytesPerSample;
     }
+#else
+        sampleIndex = info.mLengthTotal / track->mBytesPerSample;
+    }
+#endif
 
-    *sampleTimeUs = (sampleIndex * 1000000ll * track.mRate) / track.mScale;
+    *sampleTimeUs = (sampleIndex * 1000000ll * track->mRate) / track->mScale;
 
     return OK;
 }
@@ -1181,7 +1729,7 @@ status_t AVIExtractor::getSampleIndexAtTime(
 
     ssize_t closestSampleIndex;
 
-    if (track.mBytesPerSample > 0) {
+    if ((Track::AUDIO==track.mKind)&&(track.mBytesPerSample > 0)) {
         size_t closestByteOffset =
             (timeUs * track.mBytesPerSample)
                 / track.mRate * track.mScale / 1000000ll;
@@ -1189,9 +1737,25 @@ status_t AVIExtractor::getSampleIndexAtTime(
         if (closestByteOffset <= track.mFirstChunkSize) {
             closestSampleIndex = 0;
         } else {
-            closestSampleIndex =
-                (closestByteOffset - track.mFirstChunkSize)
-                    / track.mAvgChunkSize;
+            if(NO_INDEX != mIndexType && track.mSamples.size() > 0){
+                uint32_t i = 0;
+                const SampleInfo *info = &track.mSamples.itemAt(0);
+                while(info->mLengthTotal < closestByteOffset){
+                    ++i;
+                    if(i >= track.mSamples.size()){
+                        break;
+                    }
+                    info = &track.mSamples.itemAt(i);
+                    ALOGV("audiotrack seek, num=%d, mLengthTotal=%d",i, info->mLengthTotal);
+                }
+                closestSampleIndex = (info->mLengthTotal == closestByteOffset)? i: (i - 1);
+                ALOGI("mIndexType=%d, closestSampleIndex=%zd, closestByteOffset=%zu, info->mLengthTotal=%d, rate=%d, scale=%d, samplesize=%d",
+                    mIndexType,closestSampleIndex, closestByteOffset, info->mLengthTotal, track.mRate, track.mScale, track.mBytesPerSample);
+            }else{
+                closestSampleIndex =
+                    (closestByteOffset - track.mFirstChunkSize)
+                        / track.mAvgChunkSize;
+            }
         }
     } else {
         // Each chunk contains a single sample.
@@ -1199,6 +1763,10 @@ status_t AVIExtractor::getSampleIndexAtTime(
     }
 
     ssize_t numSamples = track.mSamples.size();
+    if(!numSamples)  //no sample index
+    {
+        return NOT_ENOUGH_DATA;
+    }
 
     if (closestSampleIndex < 0) {
         closestSampleIndex = 0;
@@ -1236,6 +1804,9 @@ status_t AVIExtractor::getSampleIndexAtTime(
         ++nextSyncSampleIndex;
     }
 
+    ALOGI("Track=%d, seek_mode=%d, sampleIndex=%zu, closestSampleIndex=%zd",
+                    track.mKind, mode, *sampleIndex, closestSampleIndex);
+
     switch (mode) {
         case MediaSource::ReadOptions::SEEK_PREVIOUS_SYNC:
         {
@@ -1250,11 +1821,16 @@ status_t AVIExtractor::getSampleIndexAtTime(
 
             return nextSyncSampleIndex < numSamples ? OK : UNKNOWN_ERROR;
         }
-
+#if 0
         case MediaSource::ReadOptions::SEEK_CLOSEST_SYNC:
         {
             if (prevSyncSampleIndex < 0 && nextSyncSampleIndex >= numSamples) {
-                return UNKNOWN_ERROR;
+                if (closestSampleIndex >= 0 && closestSampleIndex < numSamples) {
+                    *sampleIndex = closestSampleIndex; // seek to closestSampleIndex
+                    return OK;
+                } else {
+                    return UNKNOWN_ERROR;
+                }
             }
 
             if (prevSyncSampleIndex < 0) {
@@ -1273,9 +1849,76 @@ status_t AVIExtractor::getSampleIndexAtTime(
             *sampleIndex =
                 (dist1 < dist2) ? prevSyncSampleIndex : nextSyncSampleIndex;
 
+            ALOGI("sampleIndex=%d, prevSyncSampleIndex=%d, nextSyncSampleIndex=%d",
+                *sampleIndex, prevSyncSampleIndex, nextSyncSampleIndex);
+
             return OK;
         }
+#else
+        case MediaSource::ReadOptions::SEEK_CLOSEST_SYNC:
+        {
+            if (prevSyncSampleIndex < 0 && nextSyncSampleIndex >= numSamples) {
+                if (closestSampleIndex >= 0 && closestSampleIndex < numSamples) {
+                    *sampleIndex = closestSampleIndex; // seek to closestSampleIndex
+                    return OK;
+                } else {
+                    return UNKNOWN_ERROR;
+                }
+            }
 
+            if (prevSyncSampleIndex < 0) {
+                *sampleIndex = nextSyncSampleIndex;
+                return OK;
+            }
+
+            if (nextSyncSampleIndex >= numSamples) {
+                *sampleIndex = prevSyncSampleIndex;
+                return OK;
+            }
+
+            size_t dist1 = closestSampleIndex - prevSyncSampleIndex;
+            size_t dist2 = nextSyncSampleIndex - closestSampleIndex;
+
+            if(Track::VIDEO==track.mKind)
+            {
+                ALOGV("sampleIndex=%zu, closestSampleIndex=%zd",
+                    *sampleIndex, closestSampleIndex);
+
+                if(*sampleIndex < (size_t)closestSampleIndex) //forward seek
+                {
+                    if(dist1 < dist2 && *sampleIndex  < (size_t)prevSyncSampleIndex + 1)
+                    {
+                        *sampleIndex = prevSyncSampleIndex;
+                    }
+                    else
+                    {
+                        *sampleIndex = nextSyncSampleIndex;
+                    }
+                }
+                else //backward seek
+                {
+                    if(dist1 > dist2 && *sampleIndex  > (size_t)nextSyncSampleIndex + 1)
+                    {
+                        *sampleIndex = nextSyncSampleIndex;
+                    }
+                    else
+                    {
+                        *sampleIndex = prevSyncSampleIndex;
+                    }
+                }
+            }
+            else
+            {
+                *sampleIndex =
+                    (dist1 < dist2) ? prevSyncSampleIndex : nextSyncSampleIndex;
+            }
+
+            ALOGI("sampleIndex=%zu, prevSyncSampleIndex=%zd, nextSyncSampleIndex=%zd",
+                *sampleIndex, prevSyncSampleIndex, nextSyncSampleIndex);
+
+            return OK;
+        }
+#endif
         default:
             TRESPASS();
             break;
@@ -1289,14 +1932,14 @@ bool SniffAVI(
     if (source->readAt(0, tmp, 12) < 12) {
         return false;
     }
-
+    ALOGI("%s", __FUNCTION__);
     if (!memcmp(tmp, "RIFF", 4) && !memcmp(&tmp[8], "AVI ", 4)) {
         mimeType->setTo(MEDIA_MIMETYPE_CONTAINER_AVI);
 
         // Just a tad over the mp3 extractor's confidence, since
         // these .avi files may contain .mp3 content that otherwise would
         // mistakenly lead to us identifying the entire file as a .mp3 file.
-        *confidence = 0.21;
+        *confidence = 0.31;
 
         return true;
     }

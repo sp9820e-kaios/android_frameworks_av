@@ -96,6 +96,11 @@ void MediaPlayer::disconnect()
     }
 }
 
+void MediaPlayer::setNeedConsume(bool needConsume)
+{
+    mPlayer->setNeedConsume(needConsume);
+}
+
 // always call with lock held
 void MediaPlayer::clear_l()
 {
@@ -501,6 +506,7 @@ status_t MediaPlayer::getDuration_l(int *msec)
         return ret;
     }
     ALOGE("Attempt to call getDuration without a valid mediaplayer");
+    *msec = 0; //reset *msec for BUG426827
     return INVALID_OPERATION;
 }
 

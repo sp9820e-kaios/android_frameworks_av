@@ -74,7 +74,6 @@ struct AwesomePlayer {
     status_t setDataSource(const sp<IStreamSource> &source);
 
     void reset();
-
     status_t prepare();
     status_t prepare_l();
     status_t prepareAsync();
@@ -262,6 +261,7 @@ private:
     status_t setDataSource_l(const sp<DataSource> &dataSource);
     status_t setDataSource_l(const sp<MediaExtractor> &extractor);
     void reset_l();
+    void reset_l(bool isConsume);
     status_t seekTo_l(int64_t timeUs);
     status_t pause_l(bool at_eos = false);
     void initRenderer_l();

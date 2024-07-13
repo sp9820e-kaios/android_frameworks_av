@@ -75,6 +75,9 @@ class Camera3Device :
     // Transitions to idle state on success.
     virtual status_t initialize(CameraModule *module);
     virtual status_t disconnect();
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    virtual int cancelPicture();
+#endif
     virtual status_t dump(int fd, const Vector<String16> &args);
     virtual const CameraMetadata& info() const;
 
@@ -250,6 +253,12 @@ class Camera3Device :
         uint8_t aePrecaptureTrigger;
     } AeTriggerCancelOverride_t;
 
+    // The offset converting from clock domain of other subsystem
+    // (video/hardware composer) to that of camera. Assumption is that this
+    // offset won't change during the life cycle of the camera device. In other
+    // words, camera device shouldn't be open during CPU suspend.
+    nsecs_t                    mTimestampOffset;
+
     class CaptureRequest : public LightRefBase<CaptureRequest> {
       public:
         CameraMetadata                      mSettings;
@@ -379,6 +388,11 @@ class Camera3Device :
      */
     Size getMaxJpegResolution() const;
 
+    /**
+     * Helper function to get the offset between MONOTONIC and BOOTTIME
+     * timestamp.
+     */
+    static nsecs_t getMonoToBoottimeOffset();
     struct RequestTrigger {
         // Metadata tag number, e.g. android.control.aePrecaptureTrigger
         uint32_t metadataTag;
@@ -415,6 +429,9 @@ class Camera3Device :
          */
         void     configurationComplete();
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+        int removemRequestQueue();
+#endif
         /**
          * Set or clear the list of repeating requests. Does not block
          * on either. Use waitUntilPaused to wait until request queue
@@ -783,6 +800,10 @@ class Camera3Device :
     static callbacks_process_capture_result_t sProcessCaptureResult;
 
     static callbacks_notify_t sNotify;
+
+#ifdef CONFIG_CAMERA_SPRD_EIS
+     sp<ANativeWindow> mPrevWindow;
+#endif
 
 }; // class Camera3Device
 

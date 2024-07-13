@@ -35,7 +35,12 @@ namespace android {
 StreamDescriptor::StreamDescriptor()
     :   mIndexMin(0), mIndexMax(1), mCanBeMuted(true)
 {
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+    //modify for power off alarm no sound
+    mIndexCur.add(AUDIO_DEVICE_OUT_DEFAULT, 1);
+#else
     mIndexCur.add(AUDIO_DEVICE_OUT_DEFAULT, 0);
+#endif
 }
 
 int StreamDescriptor::getVolumeIndex(audio_devices_t device) const
@@ -66,6 +71,12 @@ void StreamDescriptor::setVolumeIndexMin(int volIndexMin)
 void StreamDescriptor::setVolumeIndexMax(int volIndexMax)
 {
     mIndexMax = volIndexMax;
+}
+
+/*sprd added for camera*/
+void StreamDescriptor::setCanBeMuted(bool canBeMuted)
+{
+    mCanBeMuted = canBeMuted;
 }
 
 void StreamDescriptor::setVolumeCurvePoint(Volume::device_category deviceCategory,
@@ -138,6 +149,11 @@ void StreamDescriptorCollection::setVolumeIndexMin(audio_stream_type_t stream,in
 void StreamDescriptorCollection::setVolumeIndexMax(audio_stream_type_t stream,int volIndexMax)
 {
     return editValueAt(stream).setVolumeIndexMax(volIndexMax);
+}
+
+void StreamDescriptorCollection::setCanBeMuted(audio_stream_type_t stream, bool canBeMuted)
+{
+    return editValueAt(stream).setCanBeMuted(canBeMuted);
 }
 
 status_t StreamDescriptorCollection::dump(int fd) const

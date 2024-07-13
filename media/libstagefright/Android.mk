@@ -69,6 +69,11 @@ LOCAL_SRC_FILES:=                         \
         WVMExtractor.cpp                  \
         XINGSeeker.cpp                    \
         avc_utils.cpp                     \
+        AVIExtractor.cpp                  \
+        FLVExtractor.cpp                  \
+        FileCache.cpp                     \
+        MP3FileSource.cpp		  \
+        avc_utils_sprd.cpp                \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/ \
@@ -134,11 +139,28 @@ ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DENABLE_STAGEFRIGHT_EXPERIMENTS
 endif
 
-LOCAL_CLANG := true
+ifeq ($(AUDIO_24BITS_OUTPUT), 1)
+    LOCAL_CFLAGS += -DAUDIO_24BIT_PLAYBACK_SUPPORT
+endif
 
+LOCAL_CLANG := true
+LOCAL_CFLAGS += -DMP3FILESOURCE
+
+ifeq ($(strip $(BOARD_VSP_SUPPORT_1080I)),true)
+LOCAL_CFLAGS += -DCONFIG_VSP_SUPPORT_1080I
+endif
+
+ifeq ($(strip $(TARGET_BOARD_CAMERA_EIS)),true)
+    LOCAL_CFLAGS += -DCONFIG_SPRD_RECORD_EIS
+    LOCAL_CFLAGS += -DANDROID_FRAMEWORKS_CAMERA_SPRD
+endif
 LOCAL_MODULE:= libstagefright
 
 LOCAL_MODULE_TAGS := optional
+
+ifeq ($(TARGET_BUILD_VARIANT), userdebug)
+        LOCAL_CPPFLAGS += -DDUMP_DEBUG
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 

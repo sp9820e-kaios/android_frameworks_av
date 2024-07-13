@@ -118,10 +118,17 @@ void ARTPConnection::MakePortPair(
     bumpSocketBufferSize(*rtcpSocket);
 
     /* rand() * 1000 may overflow int type, use long long */
+// SPRD: add for Vodafone feature request the UDP port scope in [6970 - 32000]
     unsigned start = (unsigned)((rand()* 1000ll)/RAND_MAX) + 15550;
     start &= ~1;
-
-    for (unsigned port = start; port < 65536; port += 2) {
+    unsigned end = 65536;
+#ifdef VODAFONE_FEATURE_ENABLE
+    ALOGI("vodafone feature is enable");
+    start = 6970;
+    end = 32000;
+#endif
+    for (unsigned port = start; port < end; port += 2) {
+// SPRD: add for Vodafone feature request the UDP port scope in [6970 - 32000]
         struct sockaddr_in addr;
         memset(addr.sin_zero, 0, sizeof(addr.sin_zero));
         addr.sin_family = AF_INET;

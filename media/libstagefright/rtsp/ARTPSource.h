@@ -45,6 +45,8 @@ struct ARTPSource : public RefBase {
 
     void addReceiverReport(const sp<ABuffer> &buffer);
     void addFIR(const sp<ABuffer> &buffer);
+    uint8_t getFractionLost();
+    uint8_t getCumulativeLost();
 
 private:
     uint32_t mID;
@@ -62,6 +64,9 @@ private:
     uint8_t mNextFIRSeqNo;
 
     sp<AMessage> mNotify;
+    uint32_t mNumLastRRPackRecv;  //the number of packets received util last sending RR...
+    uint32_t mLastRRPackRecvSeqNum;  //the received highest seqNum when send last RR packet
+    uint32_t mFirstPacketSeqNum;
 
     bool queuePacket(const sp<ABuffer> &buffer);
 

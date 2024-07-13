@@ -99,6 +99,7 @@ private:
     int mLongitudex10000;
     bool mAreGeoTagsAvailable;
     int32_t mStartTimeOffsetMs;
+    int32_t mCountTracksWithData;
 
     Mutex mLock;
 
@@ -113,6 +114,8 @@ private:
     status_t startTracks(MetaData *params);
     size_t numTracks();
     int64_t estimateMoovBoxSize(int32_t bitRate);
+    size_t getNumTracksWithData();
+    void incNumTracksWithData();
 
     struct Chunk {
         Track               *mTrack;        // Owner

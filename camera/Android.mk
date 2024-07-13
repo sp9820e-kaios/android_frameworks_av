@@ -16,8 +16,13 @@ CAMERA_CLIENT_LOCAL_PATH:= $(call my-dir)
 include $(call all-subdir-makefiles)
 include $(CLEAR_VARS)
 
+ifeq ($(USE_PROJECT_SEC),true)
+LOCAL_CFLAGS += -DUSE_PROJECT_SEC
+endif
+
 LOCAL_PATH := $(CAMERA_CLIENT_LOCAL_PATH)
 
+LOCAL_CFLAGS += -DANDROID_FRAMEWORKS_CAMERA_SPRD
 LOCAL_SRC_FILES:= \
 	Camera.cpp \
 	CameraMetadata.cpp \

@@ -123,7 +123,7 @@ Camera2ClientBase<TClientBase>::~Camera2ClientBase() {
 }
 
 template <typename TClientBase>
-status_t Camera2ClientBase<TClientBase>::dump(int fd,
+status_t Camera2ClientBase<TClientBase>::dumpClient(int fd,
                                               const Vector<String16>& args) {
     String8 result;
     result.appendFormat("Camera2ClientBase[%d] (%p) PID: %d, dump:\n",
@@ -186,6 +186,15 @@ void Camera2ClientBase<TClientBase>::disconnect() {
     ALOGV("Camera %d: Shut down complete complete", TClientBase::mCameraId);
 }
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+template <typename TClientBase>
+int Camera2ClientBase<TClientBase>::cancelPicture() {
+	ALOGV("cancelPicture Camera2ClientBase  begin...");
+    int count = mDevice->cancelPicture();
+    ALOGV("cancelPicture Camera2ClientBase end");
+    return count;
+}
+#endif
 template <typename TClientBase>
 void Camera2ClientBase<TClientBase>::detachDevice() {
     if (mDevice == 0) return;

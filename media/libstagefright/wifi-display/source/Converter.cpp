@@ -159,7 +159,12 @@ status_t Converter::initEncoder() {
     }
 
     int32_t audioBitrate = GetInt32Property("media.wfd.audio-bitrate", 128000);
-    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 5000000);
+
+#ifndef WIFIDISPLAY_PLATFORM_SP9860G
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 3000000);
+#else
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 6000000);
+#endif
     mPrevVideoBitrate = videoBitrate;
 
     ALOGI("using audio bitrate of %d bps, video bitrate of %d bps",
@@ -170,8 +175,13 @@ status_t Converter::initEncoder() {
     } else {
         mOutputFormat->setInt32("bitrate", videoBitrate);
         mOutputFormat->setInt32("bitrate-mode", OMX_Video_ControlRateConstant);
+
+    #ifndef WIFIDISPLAY_PLATFORM_SP9860G
+        mOutputFormat->setInt32("frame-rate", 25);
+    #else
         mOutputFormat->setInt32("frame-rate", 30);
-        mOutputFormat->setInt32("i-frame-interval", 15);  // Iframes every 15 secs
+    #endif
+        mOutputFormat->setInt32("i-frame-interval", 1);  // trigger setting OMX_IndexParamVideoAvc nPFrames
 
         // Configure encoder to use intra macroblock refresh mode
         mOutputFormat->setInt32("intra-refresh-mode", OMX_VIDEO_IntraRefreshCyclic);
@@ -191,7 +201,7 @@ status_t Converter::initEncoder() {
         mOutputFormat->setInt32("intra-refresh-CIR-mbs", mbs);
     }
 
-    ALOGV("output format is '%s'", mOutputFormat->debugString(0).c_str());
+    ALOGI("output format is '%s'", mOutputFormat->debugString(0).c_str());
 
     mNeedToManuallyPrependSPSPPS = false;
 
@@ -264,7 +274,9 @@ status_t Converter::initEncoder() {
     if (mFlags & FLAG_USE_SURFACE_INPUT) {
         scheduleDoMoreWork();
     }
-
+    AString SceneMode = "Wfd";
+    mOutputFormat->setString("scene-mode",SceneMode);
+    mEncoder ->setParameters(mOutputFormat);
     return OK;
 }
 

@@ -31,6 +31,12 @@ ifeq ($(TARGET_ARCH),arm)
     LOCAL_CFLAGS += -Wno-psabi
 endif
 
+#SPRD: add for Vodafone feature request the UDP port scope in [6970 - 32000]
+ifeq ($(ENABLE_VODAFONE_FEATURE),true)
+    LOCAL_CFLAGS += -DVODAFONE_FEATURE_ENABLE
+endif
+#SPRD: add for Vodafone feature request the UDP port scope in [6970 - 32000]
+
 LOCAL_CFLAGS += -Werror -Wall
 LOCAL_CLANG := true
 

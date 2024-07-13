@@ -128,7 +128,7 @@ private:
     int32_t mPullExtractorGeneration;
     int64_t mFirstSampleTimeRealUs;
     int64_t mFirstSampleTimeUs;
-
+    sp<IHDCP> mUnusedParm;
     status_t setupMediaPacketizer(bool enableAudio, bool enableVideo);
 
     status_t setupPacketizer(

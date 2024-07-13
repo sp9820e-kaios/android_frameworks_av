@@ -8,6 +8,10 @@ LOCAL_C_INCLUDES := \
         frameworks/av/media/libstagefright/include \
         frameworks/native/include/media/openmax
 
+ifeq ($(AUDIO_24BITS_OUTPUT), 1)
+    LOCAL_CFLAGS += -DAUDIO_24BIT_PLAYBACK_SUPPORT
+endif
+
 LOCAL_CFLAGS += -Werror
 
 LOCAL_SHARED_LIBRARIES := \

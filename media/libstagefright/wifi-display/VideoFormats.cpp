@@ -542,7 +542,8 @@ bool VideoFormats::PickBestFormat(
                         &sinkProfile, &sinkLevel);
     *chosenProfile = srcProfile < sinkProfile ? srcProfile : sinkProfile;
     *chosenLevel = srcLevel < sinkLevel ? srcLevel : sinkLevel;
-
+    ALOGD("sinkProfile: %d, srcProfile: %d, sinkLevel: %d, srcLevel: %d ",sinkProfile,srcProfile,sinkLevel,srcLevel);
+    ALOGD("chosenProfile: %d, chosenLevel: %d ",*chosenProfile,*chosenLevel);
     return true;
 }
 

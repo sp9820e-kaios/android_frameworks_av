@@ -170,6 +170,7 @@ private:
 
     // modified on only renderer's thread.
     bool mPaused;
+    int64_t mPauseDrainAudioAllowedUs; // time when we can drain/deliver audio in pause mode.
 
     bool mVideoSampleReceived;
     bool mVideoRenderingStarted;
@@ -197,7 +198,7 @@ private:
     bool mUseAudioCallback;
 
     sp<AWakeLock> mWakeLock;
-
+    bool mDrainAudioEos;
     status_t getCurrentPositionOnLooper(int64_t *mediaUs);
     status_t getCurrentPositionOnLooper(
             int64_t *mediaUs, int64_t nowUs, bool allowPastQueuedVideo = false);

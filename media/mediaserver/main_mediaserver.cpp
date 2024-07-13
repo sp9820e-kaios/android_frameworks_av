@@ -36,13 +36,22 @@
 #include "MediaPlayerService.h"
 #include "ResourceManagerService.h"
 #include "service/AudioPolicyService.h"
+#include "MediaUtils.h"
 #include "SoundTriggerHwService.h"
 #include "RadioService.h"
+#ifdef MEDIA_VOLTE_ENABLE
+#include "VideoCallEngineService.h"
+#endif
 
 using namespace android;
 
 int main(int argc __unused, char** argv)
 {
+    limitProcessMemory(
+        "ro.media.maxmem", /* property that defines limit */
+        SIZE_MAX, /* upper limit in bytes */
+        95 /* upper limit as percentage of physical RAM */);
+
     signal(SIGPIPE, SIG_IGN);
     char value[PROPERTY_VALUE_MAX];
     bool doLog = (property_get("ro.test_harness", value, "0") > 0) && (atoi(value) == 1);
@@ -136,6 +145,14 @@ int main(int argc __unused, char** argv)
         AudioPolicyService::instantiate();
         SoundTriggerHwService::instantiate();
         RadioService::instantiate();
+#ifdef MEDIA_VOLTE_ENABLE
+        char value[PROPERTY_VALUE_MAX];
+        if (property_get("persist.sys.volte.enable", value, NULL)
+                 && (!strcmp(value, "1") || !strcasecmp(value, "true")))
+        {
+             VideoCallEngineService::instantiate();
+        }
+#endif
         registerExtensions();
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();

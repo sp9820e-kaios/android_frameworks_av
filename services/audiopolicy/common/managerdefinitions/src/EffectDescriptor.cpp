@@ -20,6 +20,7 @@
 #include "EffectDescriptor.h"
 #include <utils/String8.h>
 
+
 namespace android {
 
 status_t EffectDescriptor::dump(int fd)
@@ -72,14 +73,17 @@ status_t EffectDescriptorCollection::registerEffect(const effect_descriptor_t *d
     effectDesc->mStrategy = static_cast<routing_strategy>(strategy);
     effectDesc->mSession = session;
     effectDesc->mEnabled = false;
-
-    add(id, effectDesc);
-
+    {
+        Mutex::Autolock autolock(mlock);
+        add(id, effectDesc);
+    }
     return NO_ERROR;
 }
 
 status_t EffectDescriptorCollection::unregisterEffect(int id)
 {
+    Mutex::Autolock autolock(mlock);
+
     ssize_t index = indexOfKey(id);
     if (index < 0) {
         ALOGW("unregisterEffect() unknown effect ID %d", id);
@@ -106,6 +110,7 @@ status_t EffectDescriptorCollection::unregisterEffect(int id)
 
 status_t EffectDescriptorCollection::setEffectEnabled(int id, bool enabled)
 {
+    Mutex::Autolock autolock(mlock);
     ssize_t index = indexOfKey(id);
     if (index < 0) {
         ALOGW("unregisterEffect() unknown effect ID %d", id);
@@ -148,6 +153,7 @@ status_t EffectDescriptorCollection::setEffectEnabled(const sp<EffectDescriptor>
 
 bool EffectDescriptorCollection::isNonOffloadableEffectEnabled()
 {
+    Mutex::Autolock autolock(mlock);
     for (size_t i = 0; i < size(); i++) {
         sp<EffectDescriptor> effectDesc = valueAt(i);
         if (effectDesc->mEnabled && (effectDesc->mStrategy == STRATEGY_MEDIA) &&

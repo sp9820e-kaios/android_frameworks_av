@@ -49,7 +49,10 @@ ARTPSource::ARTPSource(
       mIssueFIRRequests(false),
       mLastFIRRequestUs(-1),
       mNextFIRSeqNo((rand() * 256.0) / RAND_MAX),
-      mNotify(notify) {
+      mNotify(notify),
+      mNumLastRRPackRecv(0),
+      mLastRRPackRecvSeqNum(0),
+      mFirstPacketSeqNum(0){
     unsigned long PT;
     AString desc;
     AString params;
@@ -108,6 +111,7 @@ bool ARTPSource::queuePacket(const sp<ABuffer> &buffer) {
     if (mNumBuffersReceived++ == 0) {
         mHighestSeqNumber = seqNum;
         mQueue.push_back(buffer);
+        mFirstPacketSeqNum = seqNum;
         return true;
     }
 
@@ -213,6 +217,51 @@ void ARTPSource::addFIR(const sp<ABuffer> &buffer) {
     ALOGV("Added FIR request.");
 }
 
+
+uint8_t ARTPSource::getFractionLost() {
+    //fractin lost--start
+    uint8_t fractionlost = 0;
+    int32_t iPacketLostSinceLastRR = 0;
+    if (mNumLastRRPackRecv == 0) {
+        //haven't sent a RR before
+        mLastRRPackRecvSeqNum = mHighestSeqNumber;
+        mNumLastRRPackRecv = mNumBuffersReceived;
+        fractionlost = 0;
+    } else {
+        iPacketLostSinceLastRR = (mHighestSeqNumber - mLastRRPackRecvSeqNum) - (mNumBuffersReceived - mNumLastRRPackRecv);
+        if(iPacketLostSinceLastRR > 0 && (mHighestSeqNumber != mLastRRPackRecvSeqNum)) {
+            fractionlost = (iPacketLostSinceLastRR * 256)/(mHighestSeqNumber - mLastRRPackRecvSeqNum);
+        } else {
+            fractionlost = 0;
+        }
+    }
+
+    mNumLastRRPackRecv = mNumBuffersReceived;
+    mLastRRPackRecvSeqNum = mHighestSeqNumber;
+    ALOGI("fractionlost: %d, mNumLastRRPackRecv: %d, mLastRRPackRecvSeqNum: %d, mID: %d", fractionlost, mNumLastRRPackRecv, mLastRRPackRecvSeqNum, mID);
+    return fractionlost;
+}
+
+uint8_t ARTPSource::getCumulativeLost() {
+    //cumulative lost --start
+    const uint32_t CUMULATIVE_LOST_MAX = 0x007FFFFF;
+    int32_t iCumulativeLost = (mHighestSeqNumber - mFirstPacketSeqNum +1) - mNumBuffersReceived;
+    if (mHighestSeqNumber == 0 && mFirstPacketSeqNum == 0 && mNumBuffersReceived == 0) {
+        iCumulativeLost = 0;
+    }
+    if (iCumulativeLost < 0) {
+        iCumulativeLost = 0;
+    }
+    if (iCumulativeLost > (int32_t)CUMULATIVE_LOST_MAX){
+        iCumulativeLost = CUMULATIVE_LOST_MAX;
+    }
+
+    ALOGI("mFirstPacketSeqNum=%d,mHighestSeqNumber=%d,mNumBuffersReceived=%d",mFirstPacketSeqNum,mHighestSeqNumber,mNumBuffersReceived);
+    ALOGI("addReceiverReport,iCumulativeLost=%d, mID: %d",iCumulativeLost, mID);
+
+    return iCumulativeLost;
+}
+
 void ARTPSource::addReceiverReport(const sp<ABuffer> &buffer) {
     if (buffer->size() + 32 > buffer->capacity()) {
         ALOGW("RTCP buffer too small to accomodate RR.");
@@ -235,11 +284,15 @@ void ARTPSource::addReceiverReport(const sp<ABuffer> &buffer) {
     data[10] = (mID >> 8) & 0xff;
     data[11] = mID & 0xff;
 
-    data[12] = 0x00;  // fraction lost
+    uint8_t fractionlost = getFractionLost();
+    data[12] = fractionlost;
+    //fractin lost--end
 
-    data[13] = 0x00;  // cumulative lost
-    data[14] = 0x00;
-    data[15] = 0x00;
+    int32_t iCumulativeLost = getCumulativeLost();
+    data[13] = (iCumulativeLost >> 16) & 0xFF;  // cumulative lost
+    data[14] = iCumulativeLost >> 8 & 0xFF;
+    data[15] = iCumulativeLost & 0xFF;
+    //cumulative lost --end
 
     data[16] = mHighestSeqNumber >> 24;
     data[17] = (mHighestSeqNumber >> 16) & 0xff;

@@ -32,6 +32,7 @@
 #include "hardware/camera_common.h"
 #include <media/MediaProfiles.h>
 #include <media/mediarecorder.h>
+#include <SprdCamera3Tags.h>
 
 namespace android {
 namespace camera2 {
@@ -61,8 +62,17 @@ status_t Parameters::initialize(const CameraMetadata *info, int deviceVersion) {
 
     res = buildQuirks();
     if (res != OK) return res;
-
+    #if 0//def ANDROID_FRAMEWORKS_CAMERA_SPRD
+    Size MAX_PREVIEW_SIZE = { MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT };
+    camera_metadata_ro_entry_t availableBigSize =
+    staticInfo(ANDROID_SPRD_SUPPORT_BIG_PRE_REC_SIZE, 0, 0, false);
+    if (availableBigSize.data.u8[0] == 0) {
+        MAX_PREVIEW_SIZE.width = 1280;
+        MAX_PREVIEW_SIZE.height = 720;
+    }
+    #else
     const Size MAX_PREVIEW_SIZE = { MAX_PREVIEW_WIDTH, MAX_PREVIEW_HEIGHT };
+    #endif
     // Treat the H.264 max size as the max supported video size.
     MediaProfiles *videoEncoderProfiles = MediaProfiles::getInstance();
     Vector<video_encoder> encoders = videoEncoderProfiles->getVideoEncoders();
@@ -214,8 +224,8 @@ status_t Parameters::initialize(const CameraMetadata *info, int deviceVersion) {
                 supportedPreviewFormats);
     }
 
-    previewFpsRange[0] = availableFpsRanges.data.i32[0];
-    previewFpsRange[1] = availableFpsRanges.data.i32[1];
+    previewFpsRange[0] = fastInfo.bestStillCaptureFpsRange[0];
+    previewFpsRange[1] = fastInfo.bestStillCaptureFpsRange[1];
 
     // PREVIEW_FRAME_RATE / SUPPORTED_PREVIEW_FRAME_RATES are deprecated, but
     // still have to do something sane for them
@@ -276,6 +286,116 @@ status_t Parameters::initialize(const CameraMetadata *info, int deviceVersion) {
         params.set(CameraParameters::KEY_SUPPORTED_PREVIEW_FRAME_RATES,
                 supportedPreviewFrameRates);
     }
+    #ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    /*sprd add brightness start*/
+    camera_metadata_ro_entry_t availableBrightNess =
+        staticInfo(ANDROID_SPRD_AVAILABLE_BRIGHTNESS, 0, 0, false);
+    if (!availableBrightNess.count) return NO_INIT;
+
+    brightness = availableBrightNess.data.u8[availableBrightNess.count / 2];
+
+    params.setSprdBrightNess(brightness);
+
+    {
+        String8 supportedBrightness;
+        for (size_t i=0; i < availableBrightNess.count; i++) {
+            if (i != 0) supportedBrightness += ",";
+            supportedBrightness += String8::format("%d",
+                    availableBrightNess.data.u8[i]);
+        }
+        params.set(CameraParameters::KEY_SUPPORTED_BRIGHTNESS,
+                supportedBrightness);
+    }
+    /*sprd add slow motion*/
+    {
+        String8 supportedSlowMotion;
+        camera_metadata_ro_entry_t availableSlowMotion =
+            staticInfo(ANDROID_SPRD_AVAILABLE_SLOW_MOTION, 0, 0, false);
+        if (!availableSlowMotion.count) return NO_INIT;
+        slowmotion = availableSlowMotion.data.u8[1];
+        params.setSprdSlowMotion(slowmotion);
+
+        for (size_t i=0; i < availableSlowMotion.count; i++) {
+            if (i != 0) supportedSlowMotion += ",";
+            supportedSlowMotion += String8::format("%d", availableSlowMotion.data.u8[i]);
+        }
+        params.set(CameraParameters::KEY_SUPPORTED_SLOWMOTION, supportedSlowMotion);
+    }
+    /*sprd add metering mode*/
+    {
+        String8 supportedMeterMode;
+        const char *str[4] = {
+            "frame-average",
+            "center-weighted",
+            "spot-metering",
+            NULL
+        };
+        camera_metadata_ro_entry_t availableMeterMode =
+            staticInfo(ANDROID_SPRD_AVAILABLE_METERING_MODE, 0, 0, false);
+        if (!availableMeterMode.count) return NO_INIT;
+        meteringmode = availableMeterMode.data.u8[0];
+        params.setSprdMeteringMode(meteringmode);
+
+        for (size_t i=0; i < availableMeterMode.count; i++) {
+            if (i != 0) supportedMeterMode+= ",";
+            supportedMeterMode += String8::format("%s", str[availableMeterMode.data.u8[i]]);
+        }
+        params.set(CameraParameters::KEY_SUPPORTED_METERING_MODE, supportedMeterMode);
+    }
+    /*sprd add brightness end*/
+	/*sprd add saturation*/
+    {
+        String8 supportedSaturation;
+        camera_metadata_ro_entry_t availableSaturation =
+        staticInfo(ANDROID_SPRD_AVAILABLE_SATURATION, 0, 0, false);
+        if (!availableSaturation.count) return NO_INIT;
+        saturation = availableSaturation.data.u8[availableSaturation.count / 2];
+        params.setSprdSaturation(saturation);
+
+        for (size_t i=0; i < availableSaturation.count; i++) {
+            if (i != 0) supportedSaturation += ",";
+            supportedSaturation += String8::format("%d", availableSaturation.data.u8[i]);
+        }
+        params.set(CameraParameters::KEY_SUPPORTED_SATURATION, supportedSaturation);
+    }
+    /*sprd add saturation end*/
+		/*sprd add contrast*/
+    {
+        String8 supportedContrast;
+        camera_metadata_ro_entry_t availableContrast =
+        staticInfo(ANDROID_SPRD_AVAILABLE_CONTRAST, 0, 0, false);
+        if (!availableContrast.count) return NO_INIT;
+        contrast = availableContrast.data.u8[availableContrast.count / 2];
+        params.setSprdContrast(contrast);
+
+        for (size_t i=0; i < availableContrast.count; i++) {
+            if (i != 0) supportedContrast += ",";
+            supportedContrast += String8::format("%d", availableContrast.data.u8[i]);
+        }
+        params.set(CameraParameters::KEY_SUPPORTED_CONTRAST, supportedContrast);
+    }
+    {
+        String8 supportedISO;
+        camera_metadata_ro_entry_t availableISO =
+        staticInfo(ANDROID_SPRD_AVAILABLE_ISO, 0, 0, false);
+		if (availableISO.count) {
+        /*1 means "auto"*/
+			iso = availableISO.data.u8[0];
+			params.setSprdISO(iso);
+
+			for (size_t i=0; i < availableISO.count; i++) {
+				if (i == 0) {
+					supportedISO += "auto";
+				} else {
+					supportedISO += ",";
+					supportedISO += String8::format("%d", (1 << (availableISO.data.u8[i] - 1)) * 100);
+				}
+			}
+			params.set(CameraParameters::KEY_SUPPORTED_ISO, supportedISO);
+		}
+    }
+
+    #endif
 
     Vector<Size> availableJpegSizes = getAvailableJpegSizes();
     if (!availableJpegSizes.size()) return NO_INIT;
@@ -1466,6 +1586,91 @@ status_t Parameters::set(const String8& paramString) {
             return BAD_VALUE;
         }
     }
+    #ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    validatedParams.brightness = newParams.getSprdBrightNess();
+    if (validatedParams.brightness != brightness) {
+        camera_metadata_ro_entry_t availableBrightness =
+            staticInfo(ANDROID_SPRD_AVAILABLE_BRIGHTNESS);
+        for (i = 0; i < availableBrightness.count; i++) {
+            if (availableBrightness.data.u8[i] ==
+                    validatedParams.brightness) break;
+        }
+        if (i == availableBrightness.count) {
+            ALOGE("%s: Requested brightness %d is not supported",
+                    __FUNCTION__, validatedParams.brightness);
+            return BAD_VALUE;
+        }
+    }
+	validatedParams.slowmotion = newParams.getSprdSlowMotion();
+	if (validatedParams.slowmotion != slowmotion) {
+		camera_metadata_ro_entry_t availableSlowmotion =
+		staticInfo(ANDROID_SPRD_AVAILABLE_SLOW_MOTION);
+		for (i = 0; i < availableSlowmotion.count; i++) {
+			if (availableSlowmotion.data.u8[i] ==
+				validatedParams.slowmotion) break;
+		}
+		if (i == availableSlowmotion.count) {
+			ALOGE("%s: Requested slowmotion %d is not supported",
+				__FUNCTION__, validatedParams.slowmotion);
+			return BAD_VALUE;
+		}
+	}
+	validatedParams.sensorRot = newParams.getSprdSensorRot();
+	validatedParams.sensorOrient = newParams.getSprdSensorOrient();
+	validatedParams.iso = newParams.getSprdISO();
+	if (validatedParams.iso != iso) {
+		camera_metadata_ro_entry_t availableISO =
+			//staticInfo(ANDROID_SPRD_AVAILABLE_ISO);
+			staticInfo(ANDROID_SPRD_AVAILABLE_ISO, 0, 0, false);
+		for (i = 0; i < availableISO.count; i++) {
+			if (availableISO.data.u8[i] ==
+				validatedParams.iso) break;
+		}
+	}
+	validatedParams.saturation = newParams.getSprdSaturation();
+	if (validatedParams.saturation != saturation) {
+		camera_metadata_ro_entry_t availableSaturation =
+			staticInfo(ANDROID_SPRD_AVAILABLE_SATURATION);
+		for (i = 0; i < availableSaturation.count; i++) {
+			if (availableSaturation.data.u8[i] ==
+				validatedParams.saturation) break;
+		}
+		if (i == availableSaturation.count) {
+			ALOGE("%s: Requested saturation %d is not supported",
+			__FUNCTION__, validatedParams.saturation);
+			return BAD_VALUE;
+		}
+	}
+	validatedParams.contrast = newParams.getSprdContrast();
+	if (validatedParams.contrast != contrast) {
+		camera_metadata_ro_entry_t availableContrast =
+			staticInfo(ANDROID_SPRD_AVAILABLE_CONTRAST);
+		for (i = 0; i < availableContrast.count; i++) {
+			if (availableContrast.data.u8[i] ==
+				validatedParams.contrast) break;
+		}
+		if (i == availableContrast.count) {
+			ALOGE("%s: Requested contrast %d is not supported",
+			__FUNCTION__, validatedParams.contrast);
+			return BAD_VALUE;
+		}
+	}
+	validatedParams.meteringmode = newParams.getSprdMeteringMode();
+	if (validatedParams.meteringmode != meteringmode) {
+		camera_metadata_ro_entry_t availableMeterMode =
+		staticInfo(ANDROID_SPRD_AVAILABLE_METERING_MODE);
+		for (i = 0; i < availableMeterMode.count; i++) {
+			if (availableMeterMode.data.u8[i] ==
+				validatedParams.meteringmode) break;
+		}
+		if (i == availableMeterMode.count) {
+			ALOGE("%s: Requested meteringmode %d is not supported",
+				__FUNCTION__, validatedParams.meteringmode);
+			return BAD_VALUE;
+		}
+	}
+    validatedParams.perfectSkinlevel = newParams.getSprdPerfectSkinLevel();
+    #endif
 
     // JPEG_THUMBNAIL_WIDTH/HEIGHT
     validatedParams.jpegThumbSize[0] =
@@ -1827,6 +2032,21 @@ status_t Parameters::set(const String8& paramString) {
     // VIDEO_SIZE
     newParams.getVideoSize(&validatedParams.videoWidth,
             &validatedParams.videoHeight);
+#ifdef CONFIG_CAMERA_SPRD_EIS
+    validatedParams.eisMode = false;
+    if(newParams.getSprdEOIS()!= NULL) {
+        int eisdisable;
+        eisdisable = strcmp(newParams.getSprdEOIS(),"true");
+        validatedParams.eisMode = (eisdisable == 0) ? true : false;
+    }
+    if (validatedParams.eisMode) {
+         validatedParams.videoWidth *= 1.2;
+         validatedParams.videoHeight *= 1.2;
+         validatedParams.videoWidth = (validatedParams.videoWidth >> 4) << 4;
+         validatedParams.videoHeight = (validatedParams.videoHeight >> 4) << 4;
+         ALOGD("set.videoWidth = %d, videoHeight = %d", videoWidth, videoHeight);
+    }
+#endif
     if (validatedParams.videoWidth != videoWidth ||
             validatedParams.videoHeight != videoHeight) {
         if (state == RECORD) {
@@ -1844,11 +2064,21 @@ status_t Parameters::set(const String8& paramString) {
                     (availableVideoSizes[i].height ==
                         validatedParams.videoHeight)) break;
             }
+
             if (i == availableVideoSizes.size()) {
+#ifdef CONFIG_CAMERA_SPRD_EIS
+                if (validatedParams.eisMode == false) {
+                    ALOGE("%s: Requested video size %d x %d is not supported",
+                           __FUNCTION__, validatedParams.videoWidth,
+                           validatedParams.videoHeight);
+                    return BAD_VALUE;
+                }
+#else
                 ALOGE("%s: Requested video size %d x %d is not supported",
                         __FUNCTION__, validatedParams.videoWidth,
                         validatedParams.videoHeight);
                 return BAD_VALUE;
+#endif
             }
         }
     }
@@ -2016,6 +2246,102 @@ status_t Parameters::updateRequest(CameraMetadata *request) const {
     res = request->update(ANDROID_CONTROL_AWB_MODE,
             &wbMode, 1);
     if (res != OK) return res;
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    uint8_t reqBrightness = 0;
+    if (brightness >= 0 && brightness < 256) {
+        reqBrightness = brightness;
+        res = request->update(ANDROID_SPRD_BRIGHTNESS,
+                &reqBrightness, 1);
+        if (res != OK) return res;
+    } else {
+        ALOGE("updatereq bright too big=%d", brightness);
+        return BAD_VALUE;
+    }
+	int32_t reqSensorRot = sensorRot;
+		//reqSensorRot = 270;
+
+	ALOGI("sensor rot=%d", reqSensorRot);
+	res = request->update(ANDROID_SPRD_SENSOR_ROTATION,
+			&reqSensorRot, 1);
+	if (res != OK) return res;
+	uint8_t reqSensorOrient = 0;
+    if (sensorOrient > -10 && sensorOrient < 10) {
+        reqSensorOrient = sensorOrient;
+		//if (reqSensorOrient == 255)
+			//reqSensorOrient = 1;
+        res = request->update(ANDROID_SPRD_SENSOR_ORIENTATION,
+                &reqSensorOrient, 1);
+        if (res != OK) return res;
+    } else {
+        ALOGE("updatereq sensorOrient too big=%d", sensorOrient);
+       // return BAD_VALUE;
+    }
+    uint8_t reqSaturation = 0;
+    if (saturation > -10 && saturation < 10) {
+        reqSaturation = saturation;
+        res = request->update(ANDROID_SPRD_SATURATION,
+                &reqSaturation, 1);
+        if (res != OK) return res;
+    } else {
+        ALOGE("updatereq saturation too big=%d", saturation);
+        return BAD_VALUE;
+    }
+    uint8_t reqContrast = 0;
+    if (contrast > -10 && contrast < 10) {
+        reqContrast = contrast;
+        res = request->update(ANDROID_SPRD_CONTRAST,
+                &reqContrast, 1);
+        if (res != OK) return res;
+    } else {
+        ALOGE("updatereq contrast too big=%d", contrast);
+        return BAD_VALUE;
+    }
+	uint8_t reqMeterMode = 0;
+	if (meteringmode >= 0 && meteringmode < 10) {
+		reqMeterMode = meteringmode;
+		res = request->update(ANDROID_SPRD_METERING_MODE,
+			&reqMeterMode, 1);
+		if (res != OK) return res;
+	} else {
+		ALOGE("updatereq meteringmode too big=%d", meteringmode);
+		return BAD_VALUE;
+	}
+	uint8_t reqISO = 0;
+	if (iso >= 0 && iso < 10) {
+		reqISO = iso;
+		res = request->update(ANDROID_SPRD_ISO,
+			&reqISO, 1);
+		if (res != OK) return res;
+	}
+		uint8_t reqSlowmotion = 1;
+	if (slowmotion >= 0 && slowmotion < 10) {
+		reqSlowmotion = slowmotion;
+		res = request->update(ANDROID_SPRD_SLOW_MOTION,
+			&reqSlowmotion, 1);
+		if (res != OK) return res;
+	} else {
+		ALOGE("updatereq slowmotion too big=%d", slowmotion);
+		return BAD_VALUE;
+	}
+    {
+        int32_t reqPerfectskinlevel = perfectSkinlevel;
+        ALOGI("perfect skin level = %d", reqPerfectskinlevel);
+        res = request->update(ANDROID_SPRD_UCAM_SKIN_LEVEL,
+        &reqPerfectskinlevel, 1);
+        if (res!=OK) return res;
+    }
+
+#ifdef CONFIG_CAMERA_SPRD_EIS
+    {
+        uint8_t reqEisMode = eisMode;
+        ALOGI("eisMode = %d", reqEisMode);
+        res = request->update(ANDROID_SPRD_EIS_ENABLED,
+        &reqEisMode, 1);
+        if (res!=OK) return res;
+    }
+#endif
+
+#endif
 
     float reqFocusDistance = 0; // infinity focus in diopters
     uint8_t reqFocusMode = ANDROID_CONTROL_AF_MODE_OFF;
@@ -2701,23 +3027,25 @@ Parameters::CropRegion Parameters::calculatePreviewCrop(
 int Parameters::arrayXToNormalizedWithCrop(int x,
         const CropRegion &scalerCrop) const {
     // Work-around for HAL pre-scaling the coordinates themselves
-    if (quirks.meteringCropRegion) {
+    // face detect is not consider zoom in this place, because hal is consider this kind of situation.
+    //if (quirks.meteringCropRegion) {
         return x * 2000 / (fastInfo.arrayWidth - 1) - 1000;
-    } else {
+    /*} else {
         CropRegion previewCrop = calculatePreviewCrop(scalerCrop);
         return (x - previewCrop.left) * 2000 / (previewCrop.width - 1) - 1000;
-    }
+    }*/
 }
 
 int Parameters::arrayYToNormalizedWithCrop(int y,
         const CropRegion &scalerCrop) const {
     // Work-around for HAL pre-scaling the coordinates themselves
-    if (quirks.meteringCropRegion) {
+    // face detect is not consider zoom in this place, because hal is consider this kind of situation.
+    //if (quirks.meteringCropRegion) {
         return y * 2000 / (fastInfo.arrayHeight - 1) - 1000;
-    } else {
+    /*} else {
         CropRegion previewCrop = calculatePreviewCrop(scalerCrop);
         return (y - previewCrop.top) * 2000 / (previewCrop.height - 1) - 1000;
-    }
+    }*/
 }
 
 status_t Parameters::getFilteredSizes(Size limit, Vector<Size> *sizes) {
@@ -2737,7 +3065,7 @@ status_t Parameters::getFilteredSizes(Size limit, Vector<Size> *sizes) {
             const StreamConfiguration &sc = scs[i];
             if (sc.isInput == ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT &&
                     sc.format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED &&
-                    sc.width <= limit.width && sc.height <= limit.height) {
+                    sc.width * sc.height <= limit.height * limit.width  ) {
                 Size sz = {sc.width, sc.height};
                 sizes->push(sz);
             }

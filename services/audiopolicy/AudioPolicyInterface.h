@@ -191,6 +191,7 @@ public:
     virtual bool isStreamActiveRemotely(audio_stream_type_t stream,
                                         uint32_t inPastMs = 0) const = 0;
     virtual bool isSourceActive(audio_source_t source) const = 0;
+    virtual bool isAudioRecording() = 0;
 
     //dump state
     virtual status_t    dump(int fd) = 0;

@@ -37,7 +37,9 @@ RemoteDisplay::RemoteDisplay(
     mLooper->registerHandler(mSource);
 
     mNetSession->start();
-    mLooper->start();
+    mLooper->start( false /* runOnCallingThread */,
+                    false /* canCallJava */,
+                    PRIORITY_AUDIO);
 
     mSource->start(iface);
 }

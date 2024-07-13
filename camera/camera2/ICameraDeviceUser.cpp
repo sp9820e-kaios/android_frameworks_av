@@ -49,7 +49,10 @@ enum {
     WAIT_UNTIL_IDLE,
     FLUSH,
     PREPARE,
-    TEAR_DOWN
+    TEAR_DOWN,
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    CANCLE_PICTURE
+#endif
 };
 
 namespace {
@@ -181,6 +184,18 @@ public:
         return res;
     }
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    int cancelPicture()
+    {
+        ALOGV("cancelPicture");
+        Parcel data, reply;
+        data.writeInterfaceToken(ICameraDeviceUser::getInterfaceDescriptor());
+        remote()->transact(CANCLE_PICTURE, data, &reply);
+        reply.readExceptionCode();
+        int res = reply.readInt32();
+        return res;
+    }
+#endif
     virtual status_t beginConfigure()
     {
         ALOGV("beginConfigure");
@@ -462,6 +477,15 @@ status_t BnCameraDeviceUser::onTransact(
             reply->writeInt64(lastFrameNumber);
             return NO_ERROR;
         } break;
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+	case CANCLE_PICTURE: {
+            ALOGV("CANCLE_PICTURE");
+            CHECK_INTERFACE(ICameraDeviceUser, data, reply);
+            reply->writeNoException();
+            reply->writeInt32(cancelPicture());
+            return NO_ERROR;
+        } break;
+#endif
         case DELETE_STREAM: {
             CHECK_INTERFACE(ICameraDeviceUser, data, reply);
             int streamId = data.readInt32();

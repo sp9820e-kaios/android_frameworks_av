@@ -40,6 +40,7 @@
 #include "audio_policy_conf.h"
 #include <ConfigParsingUtils.h>
 #include <policy.h>
+#include <fcntl.h>
 
 namespace android {
 
@@ -60,7 +61,7 @@ status_t AudioPolicyManager::setDeviceConnectionStateInt(audio_devices_t device,
                                                          const char *device_address,
                                                          const char *device_name)
 {
-    ALOGV("setDeviceConnectionStateInt() device: 0x%X, state %d, address %s name %s",
+    ALOGI("setDeviceConnectionStateInt() device: 0x%X, state %d, address %s name %s",
 -            device, state, device_address, device_name);
 
     // connect/disconnect only 1 device at a time
@@ -478,10 +479,11 @@ void AudioPolicyManager::setPhoneState(audio_mode_t state)
         }
     }
 
+    audio_devices_t rxDevice =AUDIO_DEVICE_NONE;
     if (hasPrimaryOutput()) {
         // Note that despite the fact that getNewOutputDevice() is called on the primary output,
         // the device returned is not necessarily reachable via this output
-        audio_devices_t rxDevice = getNewOutputDevice(mPrimaryOutput, false /*fromCache*/);
+        rxDevice = getNewOutputDevice(mPrimaryOutput, false /*fromCache*/);
         // force routing command to audio hardware when ending call
         // even if no device change is needed
         if (isStateInCall(oldState) && rxDevice == AUDIO_DEVICE_NONE) {
@@ -521,7 +523,9 @@ void AudioPolicyManager::setPhoneState(audio_mode_t state)
 
     // Flag that ringtone volume must be limited to music volume until we exit MODE_RINGTONE
     if (state == AUDIO_MODE_RINGTONE &&
-        isStreamActive(AUDIO_STREAM_MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY)) {
+    (isStreamActive(AUDIO_STREAM_MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY) ||
+    (isStreamActive(AUDIO_STREAM_FM, SONIFICATION_HEADSET_MUSIC_DELAY) &&
+    (rxDevice == (rxDevice & ~(AUDIO_DEVICE_OUT_SPEAKER)))))) {
         mLimitRingtoneVolume = true;
     } else {
         mLimitRingtoneVolume = false;
@@ -535,7 +539,7 @@ audio_mode_t AudioPolicyManager::getPhoneState() {
 void AudioPolicyManager::setForceUse(audio_policy_force_use_t usage,
                                          audio_policy_forced_cfg_t config)
 {
-    ALOGV("setForceUse() usage %d, config %d, mPhoneState %d", usage, config, mEngine->getPhoneState());
+    ALOGI("setForceUse() usage %d, config %d, mPhoneState %d", usage, config, mEngine->getPhoneState());
 
     if (mEngine->setForceUse(usage, config) != NO_ERROR) {
         ALOGW("setForceUse() could not set force cfg %d for usage %d", config, usage);
@@ -1683,7 +1687,7 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
     // Force max volume if stream cannot be muted
     if (!mStreams.canBeMuted(stream)) index = mStreams.valueFor(stream).getVolumeIndexMax();
 
-    ALOGV("setStreamVolumeIndex() stream %d, device %04x, index %d",
+    ALOGI("setStreamVolumeIndex() stream %d, device %04x, index %d",
           stream, device, index);
 
     // if device is AUDIO_DEVICE_OUT_DEFAULT set default value and
@@ -1695,6 +1699,18 @@ status_t AudioPolicyManager::setStreamVolumeIndex(audio_stream_type_t stream,
 
     // update volume on all outputs whose current device is also selected by the same
     // strategy as the device specified by the caller
+    /**
+    *SPRD:Bug 532626: After play music,Play the default notification sound,will not be able to adjust the volume.
+    *@{
+    **/
+    if(stream ==AUDIO_STREAM_NOTIFICATION)
+    {
+        checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
+        updateDevicesAndOutputs();
+    }
+    /**
+    *}@
+    **/
     audio_devices_t strategyDevice = getDeviceForStrategy(getStrategy(stream), true /*fromCache*/);
 
 
@@ -1744,7 +1760,7 @@ status_t AudioPolicyManager::getStreamVolumeIndex(audio_stream_type_t stream,
     device = Volume::getDeviceForVolume(device);
 
     *index =  mStreams.valueFor(stream).getVolumeIndex(device);
-    ALOGV("getStreamVolumeIndex() stream %d device %08x index %d", stream, device, *index);
+    ALOGD("getStreamVolumeIndex() stream %d device %08x index %d", stream, device, *index);
     return NO_ERROR;
 }
 
@@ -1829,6 +1845,11 @@ bool AudioPolicyManager::isStreamActive(audio_stream_type_t stream, uint32_t inP
 bool AudioPolicyManager::isStreamActiveRemotely(audio_stream_type_t stream, uint32_t inPastMs) const
 {
     return mOutputs.isStreamActiveRemotely(stream, inPastMs);
+}
+
+bool AudioPolicyManager::isAudioRecording()
+{
+    return mInputs.getActiveInput() != 0;
 }
 
 bool AudioPolicyManager::isSourceActive(audio_source_t source) const
@@ -2669,6 +2690,35 @@ uint32_t AudioPolicyManager::nextAudioPortGeneration()
     return android_atomic_inc(&mAudioPortGeneration);
 }
 
+#ifdef NXP_SMART_PA
+#define EXT_SMARTPA_EXIST_FILE "/sys/kernel/ext_smartpa_exist"
+static int get_ext_smartpa_exist(void)
+{
+    int fd;
+    char exist = 1;
+    char *file = EXT_SMARTPA_EXIST_FILE;
+
+    if (!access(file , F_OK)) {
+        fd = open(file , O_RDONLY);
+        if (fd < 0) {
+            ALOGE("%s, open '%s' failed!", __func__, file );
+            return 1;
+        }
+        if (read(fd, &exist, sizeof(exist)) < 0) {
+            ALOGE("%s, read '%s' failed!", __func__, file );
+            return 1;
+        }
+
+        exist = (exist != '0');
+    }
+
+    ALOGI("External smartpa exist: %d", exist);
+
+    return exist;
+}
+#endif
+
+
 AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterface)
     :
 #ifdef AUDIO_POLICY_TEST
@@ -2700,11 +2750,21 @@ AudioPolicyManager::AudioPolicyManager(AudioPolicyClientInterface *clientInterfa
     mUidCached = getuid();
     mpClientInterface = clientInterface;
 
+    char *vnedor_apm_config_file_name = AUDIO_POLICY_VENDOR_CONFIG_FILE;
+    char *system_apm_config_file_name = AUDIO_POLICY_CONFIG_FILE;
+
+#ifdef NXP_SMART_PA
+    if (get_ext_smartpa_exist()) {
+        vnedor_apm_config_file_name = "/vendor/etc/audio_policy_nxp_smart_pa.conf";
+        system_apm_config_file_name = "/system/etc/audio_policy_nxp_smart_pa.conf";
+    }
+#endif
+
     mDefaultOutputDevice = new DeviceDescriptor(AUDIO_DEVICE_OUT_SPEAKER);
-    if (ConfigParsingUtils::loadAudioPolicyConfig(AUDIO_POLICY_VENDOR_CONFIG_FILE,
+    if (ConfigParsingUtils::loadAudioPolicyConfig(vnedor_apm_config_file_name,
                  mHwModules, mAvailableInputDevices, mAvailableOutputDevices,
                  mDefaultOutputDevice, mSpeakerDrcEnabled) != NO_ERROR) {
-        if (ConfigParsingUtils::loadAudioPolicyConfig(AUDIO_POLICY_CONFIG_FILE,
+        if (ConfigParsingUtils::loadAudioPolicyConfig(system_apm_config_file_name,
                                   mHwModules, mAvailableInputDevices, mAvailableOutputDevices,
                                   mDefaultOutputDevice, mSpeakerDrcEnabled) != NO_ERROR) {
             ALOGE("could not load audio policy configuration file, setting defaults");
@@ -3946,8 +4006,15 @@ audio_devices_t AudioPolicyManager::getNewOutputDevice(const sp<AudioOutputDescr
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
     } else if (isStrategyActive(outputDesc, STRATEGY_TRANSMITTED_THROUGH_SPEAKER)) {
         device = getDeviceForStrategy(STRATEGY_TRANSMITTED_THROUGH_SPEAKER, fromCache);
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+    //modify for FM
+    } else if (isStrategyActive(outputDesc, STRATEGY_FM)) {
+        device = getDeviceForStrategy(STRATEGY_FM, fromCache);
+#endif
     } else if (isStrategyActive(outputDesc, STRATEGY_REROUTING)) {
         device = getDeviceForStrategy(STRATEGY_REROUTING, fromCache);
+    } else if (isStrategyActive(outputDesc, STRATEGY_VIB)) {
+        device = getDeviceForStrategy(STRATEGY_VIB, fromCache);
     }
 
     ALOGV("getNewOutputDevice() selected device %x", device);
@@ -4186,16 +4253,32 @@ uint32_t AudioPolicyManager::checkDeviceMuteStrategies(sp<AudioOutputDescriptor>
 
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
-    if (outputDesc->isActive() && (device != prevDevice)) {
+    if (outputDesc->isActive() && (device != prevDevice) && (!( isStreamActive(AUDIO_STREAM_NOTIFICATION) &&
+	((prevDevice == AUDIO_DEVICE_OUT_WIRED_HEADSET && device == (AUDIO_DEVICE_OUT_SPEAKER |  AUDIO_DEVICE_OUT_WIRED_HEADSET)) ||
+	(prevDevice == AUDIO_DEVICE_OUT_WIRED_HEADPHONE && device == (AUDIO_DEVICE_OUT_SPEAKER |  AUDIO_DEVICE_OUT_WIRED_HEADPHONE)))))) {
         if (muteWaitMs < outputDesc->latency() * 2) {
             muteWaitMs = outputDesc->latency() * 2;
         }
         for (size_t i = 0; i < NUM_STRATEGIES; i++) {
             if (isStrategyActive(outputDesc, (routing_strategy)i)) {
                 setStrategyMute((routing_strategy)i, true, outputDesc);
-                // do tempMute unmute after twice the mute wait time
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+                if((device&AUDIO_DEVICE_OUT_WIRED_HEADPHONE || device&AUDIO_DEVICE_OUT_WIRED_HEADSET)
+                     && !(prevDevice&AUDIO_DEVICE_OUT_WIRED_HEADPHONE || prevDevice&AUDIO_DEVICE_OUT_WIRED_HEADSET
+                     || prevDevice&AUDIO_DEVICE_OUT_FM_HEADSET)) {
+                     //open sprd-codec headset consume  some times due to suppress bursts,so for this case will mute longer time.
+                     ALOGI("setstrategy mutetime :%d,6 X latency for headset",muteWaitMs * 3);
+                     setStrategyMute((routing_strategy)i, false, outputDesc, muteWaitMs * 3, device);
+                }else {
+                        // do tempMute unmute after twice the mute wait time
+                        setStrategyMute((routing_strategy)i, false, outputDesc,
+                                        muteWaitMs *2, device);
+               }
+#else
+               // do tempMute unmute after twice the mute wait time
                 setStrategyMute((routing_strategy)i, false, outputDesc,
                                 muteWaitMs *2, device);
+#endif
             }
         }
     }
@@ -4533,6 +4616,8 @@ float AudioPolicyManager::computeVolume(audio_stream_type_t stream,
         // by the music application and behave as if music was active if the last music track was
         // just stopped
         if (isStreamActive(AUDIO_STREAM_MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY) ||
+            (isStreamActive(AUDIO_STREAM_FM, SONIFICATION_HEADSET_MUSIC_DELAY) &&
+            (device == (device & ~(AUDIO_DEVICE_OUT_SPEAKER)))) ||
                 mLimitRingtoneVolume) {
             audio_devices_t musicDevice = getDeviceForStrategy(STRATEGY_MEDIA, true /*fromCache*/);
             float musicVolDB = computeVolume(AUDIO_STREAM_MUSIC,
@@ -4557,6 +4642,18 @@ status_t AudioPolicyManager::checkAndSetVolume(audio_stream_type_t stream,
                                                    int delayMs,
                                                    bool force)
 {
+#ifdef SPRD_CUSTOM_AUDIO_POLICY
+    //modify for FM
+    if (stream == AUDIO_STREAM_FM) {
+        ALOGI("checkAndSetVolume() stream FM return %d", stream);
+        return NO_ERROR;
+    }
+    if (stream == AUDIO_STREAM_MUSIC && device == AUDIO_DEVICE_OUT_FM_HEADSET){
+        ALOGI("checkAndSetVolume() stream is music and device is FM so return");
+        return NO_ERROR;
+    }
+#endif
+
     // do not change actual stream volume if the stream is muted
     if (outputDesc->mMuteCount[stream] != 0) {
         ALOGVV("checkAndSetVolume() stream %d muted count %d",
@@ -4811,6 +4908,8 @@ audio_stream_type_t AudioPolicyManager::streamTypefromAttributesInt(const audio_
     case AUDIO_USAGE_NOTIFICATION_COMMUNICATION_DELAYED:
     case AUDIO_USAGE_NOTIFICATION_EVENT:
         return AUDIO_STREAM_NOTIFICATION;
+    case AUDIO_USAGE_VIB:
+        return AUDIO_STREAM_VIB;
 
     case AUDIO_USAGE_UNKNOWN:
     default:
@@ -4843,6 +4942,7 @@ bool AudioPolicyManager::isValidAttributes(const audio_attributes_t *paa)
     case AUDIO_USAGE_ASSISTANCE_SONIFICATION:
     case AUDIO_USAGE_GAME:
     case AUDIO_USAGE_VIRTUAL_SOURCE:
+    case AUDIO_USAGE_VIB:
         break;
     default:
         return false;

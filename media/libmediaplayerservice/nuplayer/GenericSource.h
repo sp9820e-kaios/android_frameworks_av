@@ -42,6 +42,7 @@ class WVMExtractor;
 struct NuPlayer::GenericSource : public NuPlayer::Source {
     GenericSource(const sp<AMessage> &notify, bool uidValid, uid_t uid);
 
+    void setNeedConsume(bool needConsume);
     status_t setDataSource(
             const sp<IMediaHTTPService> &httpService,
             const char *url,
@@ -128,6 +129,7 @@ private:
     bool mIsSecure;
     bool mIsStreaming;
     bool mUIDValid;
+    bool mNeedConsume;
     uid_t mUID;
     sp<IMediaHTTPService> mHTTPService;
     AString mUri;
@@ -153,6 +155,9 @@ private:
     int32_t mPrevBufferPercentage;
 
     mutable Mutex mReadBufferLock;
+    mutable Mutex mDisconnectLock;
+
+    uint32_t mSeekFlags;
 
     sp<ALooper> mLooper;
 

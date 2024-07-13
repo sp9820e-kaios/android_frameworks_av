@@ -30,6 +30,8 @@ struct NuPlayerDriver : public MediaPlayerInterface {
 
     virtual status_t setUID(uid_t uid);
 
+    virtual void setNeedConsume(bool needConsume);
+
     virtual status_t setDataSource(
             const sp<IMediaHTTPService> &httpService,
             const char *url,

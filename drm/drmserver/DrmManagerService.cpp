@@ -81,6 +81,7 @@ bool DrmManagerService::selinuxIsProtectedCallAllowed(pid_t spid, drm_perm_t per
 }
 
 bool DrmManagerService::isProtectedCallAllowed(drm_perm_t perm) {
+#if 0	
     // TODO
     // Following implementation is just for reference.
     // Each OEM manufacturer should implement/replace with their own solutions.
@@ -94,6 +95,9 @@ bool DrmManagerService::isProtectedCallAllowed(drm_perm_t perm) {
         }
     }
     return false;
+#else
+	return true;
+#endif
 }
 
 void DrmManagerService::instantiate() {

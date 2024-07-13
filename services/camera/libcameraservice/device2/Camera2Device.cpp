@@ -152,7 +152,13 @@ status_t Camera2Device::disconnect() {
     }
     return res;
 }
-
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+int Camera2Device::cancelPicture() {
+      int res = -1;
+      ALOGV("canclePicture Camera2Device ");
+      return res;
+}
+#endif
 status_t Camera2Device::dump(int fd, const Vector<String16>& args) {
     ATRACE_CALL();
     String8 result;

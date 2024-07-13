@@ -58,7 +58,7 @@ static int64_t kAccessUnitTimeoutUs = 10000000ll;
 
 // If no access units arrive for the first 10 secs after starting the
 // stream, assume none ever will and signal EOS or switch transports.
-static int64_t kStartupTimeoutUs = 10000000ll;
+static int64_t kStartupTimeoutUs = 6000000ll; //Modify by SPRD for Bug:487955 2015.12.3
 
 static int64_t kDefaultKeepAliveTimeoutUs = 60000000ll;
 
@@ -139,7 +139,12 @@ struct MyHandler : public AHandler {
           mKeepAliveGeneration(0),
           mPausing(false),
           mPauseGeneration(0),
-          mPlayResponseParsed(false) {
+          mPlayResponseParsed(false),
+          mfirstRTPNum(-1),
+          mRCVURTCPNum(0),
+          mSdpHasRange(false),
+          mNptStart(0.0),
+          mNptEnd(0.0) {
         mNetLooper->setName("rtsp net");
         mNetLooper->start(false /* runOnCallingThread */,
                           false /* canCallJava */,
@@ -577,6 +582,19 @@ struct MyHandler : public AHandler {
 
                             mControlURL = getControlURL();
 
+                            AString value;
+                            if (!mSessionDesc->findAttribute(0, "a=range", &value)) {
+                                ALOGI("A: server has no npt range in sdp protocol");
+                            } else {
+                                if (strncmp(value.c_str(), "npt=", 4)) {
+                                    ALOGI("B: server has no npt range in sdp protocol");
+                                } else {
+                                    mSessionDesc->parseNTPRange(value.c_str() + 4, &mNptStart, &mNptEnd);
+                                    ALOGI("NTPRange: mNptStart=%f, mNptEnd=%f", mNptStart, mNptEnd);
+                                    mSdpHasRange = true;
+                                }
+                            }
+
                             if (mSessionDesc->countTracks() < 2) {
                                 // There's no actual tracks in this session.
                                 // The first "track" is merely session meta
@@ -773,7 +791,13 @@ struct MyHandler : public AHandler {
                     request.append("Session: ");
                     request.append(mSessionID);
                     request.append("\r\n");
-
+                    if (mSdpHasRange) {
+                        if (mNptEnd == mNptStart) {
+                            request.append(AStringPrintf("Range: npt=%f-\r\n", mNptStart));
+                        } else {
+                            request.append(AStringPrintf("Range: npt=%f-%f\r\n", mNptStart, mNptEnd));
+                        }
+                    }
                     request.append("\r\n");
 
                     sp<AMessage> reply = new AMessage('play', this);
@@ -900,7 +924,9 @@ struct MyHandler : public AHandler {
                 mReceivedFirstRTPPacket = false;
                 mPausing = false;
                 mSeekable = true;
-
+                mSdpHasRange = false;
+                mNptStart = 0.0;
+                mNptEnd = 0.0;
                 sp<AMessage> reply = new AMessage('tear', this);
 
                 int32_t reconnect;
@@ -989,6 +1015,7 @@ struct MyHandler : public AHandler {
                     CHECK(msg->findInt32("rtp-time", (int32_t *)&rtpTime));
                     CHECK(msg->findInt64("ntp-time", (int64_t *)&ntpTime));
 
+                    mRCVURTCPNum++; //Modify by SPRD for Bug:487955 2015.12.3
                     onTimeUpdate(trackIndex, rtpTime, ntpTime);
                     break;
                 }
@@ -1000,11 +1027,23 @@ struct MyHandler : public AHandler {
                 }
 
                 if (msg->findInt32("first-rtp", &first)) {
+                    mfirstRTPNum++; //Modify by SPRD for Bug:487955 2015.12.3
                     mReceivedFirstRTPPacket = true;
                     break;
                 }
 
                 ++mNumAccessUnitsReceived;
+
+                /* Add by SPRD for Bug:487955 2015.12.3 Start */
+                int32_t sizeTemp = mTracks.size();
+                if (mfirstRTPNum == (sizeTemp - 1)) {
+                    ALOGD("mfirstRTPNum == (mTracks.size()-1)");
+                    sp<AMessage> msg_fakt = new AMessage('fakt', this);
+                    msg_fakt->post(3000000ll);
+                    mfirstRTPNum++;
+                }
+                /* Add by SPRD for Bug:487955 2015.12.3 End */
+
                 postAccessUnitTimeoutCheck();
 
                 size_t trackIndex;
@@ -1056,6 +1095,14 @@ struct MyHandler : public AHandler {
                 onAccessUnitComplete(trackIndex, accessUnit);
                 break;
             }
+
+            /* Add by SPRD for Bug:487955 2015.12.3 Start */
+            case 'fakt' :
+            {
+                (mRCVURTCPNum == 0) ? fakeTimestamps() : void(0);
+                break;
+            }
+            /* Add by SPRD for Bug:487955 2015.12.3 End */
 
             case 'paus':
             {
@@ -1353,7 +1400,10 @@ struct MyHandler : public AHandler {
                     break;
                 }
                 if (!mReceivedFirstRTCPPacket) {
-                    if (dataReceivedOnAllChannels() && !mTryFakeRTCP) {
+                    /* Modify by SPRD for Bug:487955 2015.12.3 Start */
+                    //if (dataReceivedOnAllChannels() && !mTryFakeRTCP) {
+                    if (mReceivedFirstRTPPacket && !mTryFakeRTCP) {
+                    /* Modify by SPRD for Bug:487955 2015.12.3 End */
                         ALOGW("We received RTP packets but no RTCP packets, "
                              "using fake timestamps.");
 
@@ -1361,7 +1411,7 @@ struct MyHandler : public AHandler {
 
                         mReceivedFirstRTCPPacket = true;
 
-                        fakeTimestamps();
+                        //fakeTimestamps();  //Delete by SPRD for Bug:487955 2015.12.3
                     } else if (!mReceivedFirstRTPPacket && !mTryTCPInterleaving) {
                         ALOGW("Never received any data, switching transports.");
 
@@ -1583,6 +1633,13 @@ private:
 
     bool mPlayResponseParsed;
 
+    /* Add by SPRD for Bug:487955 2015.12.3 Start */
+    int32_t mfirstRTPNum;
+    uint32_t mRCVURTCPNum;
+    /* Add by SPRD for Bug:487955 2015.12.3 End */
+    bool mSdpHasRange;
+    float mNptStart;
+    float mNptEnd;
     void setupTrack(size_t index) {
         sp<APacketSource> source =
             new APacketSource(mSessionDesc, index);
@@ -1706,12 +1763,28 @@ private:
         return true;
     }
 
+    /* Modify by SPRD for Bug:487955 2015.12.3 Start */
+    //void fakeTimestamps() {
+    //    mNTPAnchorUs = -1ll;
+    //    for (size_t i = 0; i < mTracks.size(); ++i) {
+    //        onTimeUpdate(i, 0, 0ll);
+    //    }
+    //}
+
     void fakeTimestamps() {
         mNTPAnchorUs = -1ll;
+        TrackInfo *track ;
+        uint32_t rtpTime = 0;
         for (size_t i = 0; i < mTracks.size(); ++i) {
-            onTimeUpdate(i, 0, 0ll);
+            track = &mTracks.editItemAt(i);
+            sp<ABuffer> tempAccess = *track->mPackets.begin();
+            if (tempAccess != NULL && tempAccess.get() != NULL) {
+                CHECK(tempAccess->meta()->findInt32("rtp-time", (int32_t *)&rtpTime));
+            }
+            onTimeUpdate(i, rtpTime, 0ll);
         }
     }
+    /* Modify by SPRD for Bug:487955 2015.12.3 End */
 
     bool dataReceivedOnAllChannels() {
         TrackInfo *track;
@@ -1755,10 +1828,12 @@ private:
         track->mRTPAnchor = rtpTime;
         track->mNTPAnchorUs = ntpTimeUs;
 
-        if (mNTPAnchorUs < 0) {
+        /* Modify by SPRD for Bug:487955 2015.12.3 Start */
+        if (mNTPAnchorUs < 0 || mRCVURTCPNum == 1) {
             mNTPAnchorUs = ntpTimeUs;
-            mMediaAnchorUs = mLastMediaTimeUs;
+            mMediaAnchorUs = mLastMediaTimeUs = 0;
         }
+        /* Modify by SPRD for Bug:487955 2015.12.3 End */
 
         if (!mAllTracksHaveTime) {
             bool allTracksHaveTime = (mTracks.size() > 0);

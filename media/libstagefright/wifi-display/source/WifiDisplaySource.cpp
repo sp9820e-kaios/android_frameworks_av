@@ -77,14 +77,25 @@ WifiDisplaySource::WifiDisplaySource(
 
     mSupportedSourceVideoFormats.disableAll();
 
+#ifndef WIFIDISPLAY_PLATFORM_SP9860G
     mSupportedSourceVideoFormats.setNativeResolution(
-            VideoFormats::RESOLUTION_CEA, 5);  // 1280x720 p30
+            VideoFormats::RESOLUTION_CEA, 10);  // 1280x720 p30
 
     // Enable all resolutions up to 1280x720p30
     mSupportedSourceVideoFormats.enableResolutionUpto(
-            VideoFormats::RESOLUTION_CEA, 5,
-            VideoFormats::PROFILE_CHP,  // Constrained High Profile
-            VideoFormats::LEVEL_32);    // Level 3.2
+            VideoFormats::RESOLUTION_CEA, 10,
+            VideoFormats::PROFILE_CBP,  // Constrained Baseline Profile
+            VideoFormats::LEVEL_31);    // Level 3.1
+#else
+    mSupportedSourceVideoFormats.setNativeResolution(
+        VideoFormats::RESOLUTION_CEA, 7);  // 1920x1080 p30
+
+        // Enable all resolutions up to 1920x1080 p30
+    mSupportedSourceVideoFormats.enableResolutionUpto(
+        VideoFormats::RESOLUTION_CEA, 7,
+        VideoFormats::PROFILE_CBP,  // Constrained Baseline Profile
+        VideoFormats::LEVEL_31);    // Level 3.1
+#endif
 }
 
 WifiDisplaySource::~WifiDisplaySource() {
@@ -195,6 +206,7 @@ void WifiDisplaySource::onMessageReceived(const sp<AMessage> &msg) {
                 case ANetworkSession::kWhatError:
                 {
                     int32_t sessionID;
+                    ALOGE(" ANetworkSession kWhatError .... ");
                     CHECK(msg->findInt32("sessionID", &sessionID));
 
                     int32_t err;
@@ -1557,8 +1569,12 @@ status_t WifiDisplaySource::onSetParameterRequest(
         findPlaybackSession(data, &playbackSessionID);
 
     if (playbackSession == NULL) {
+        ALOGE("onSetParameterRequest error");
         sendErrorResponse(sessionID, "454 Session Not Found", cseq);
-        return ERROR_MALFORMED;
+        if (mPlaybackSessionEstablished)
+            return ERROR_MALFORMED;
+        else
+            return OK;
     }
 
     if (strstr(data->getContent(), "wfd_idr_request\r\n")) {

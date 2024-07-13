@@ -100,6 +100,8 @@ public:
 
     virtual status_t dump(int fd, const Vector<String16>& args);
 
+    virtual status_t dumpClient(int fd, const Vector<String16>& args);
+
     /**
      * Interface used by CameraDeviceBase
      */
@@ -161,6 +163,7 @@ private:
     void     stopPreviewL();
     status_t startRecordingL(Parameters &params, bool restart);
     bool     recordingEnabledL();
+    void     playSound(Parameters &params);
 
     // Individual commands for sendCommand()
     status_t commandStartSmoothZoomL();

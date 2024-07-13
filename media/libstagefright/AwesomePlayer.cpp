@@ -524,13 +524,6 @@ void AwesomePlayer::reset_l() {
 
     notifyListener_l(MEDIA_STOPPED);
 
-    if (mDecryptHandle != NULL) {
-            mDrmManagerClient->setPlaybackStatus(mDecryptHandle,
-                    Playback::STOP, 0);
-            mDecryptHandle = NULL;
-            mDrmManagerClient = NULL;
-    }
-
     if (mFlags & PLAYING) {
         uint32_t params = IMediaPlayerService::kBatteryDataTrackDecoder;
         if ((mAudioSource != NULL) && (mAudioSource != mAudioTrack)) {
@@ -1658,7 +1651,7 @@ status_t AwesomePlayer::initVideoDecoder(uint32_t flags) {
     }
 #else
     if (mDecryptHandle != NULL) {
-        flags |= OMXCodec::kEnableGrallocUsageProtected;
+        // flags |= OMXCodec::kEnableGrallocUsageProtected;
     }
 #endif
     ALOGV("initVideoDecoder flags=0x%x", flags);
@@ -2290,11 +2283,11 @@ status_t AwesomePlayer::finishSetDataSource_l() {
             // The widevine extractor does its own caching.
 
 #if 0
-            mCachedSource = new NuCachedSource2(
+            mCachedSource = NuCachedSource2::Create(
                     new ThrottledSource(
                         mConnectingDataSource, 50 * 1024 /* bytes/sec */));
 #else
-            mCachedSource = new NuCachedSource2(
+            mCachedSource = NuCachedSource2::Create(
                     mConnectingDataSource,
                     cacheConfig.isEmpty() ? NULL : cacheConfig.string(),
                     disconnectAtHighwatermark);

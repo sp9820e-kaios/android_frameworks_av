@@ -233,6 +233,7 @@ status_t getNextNALUnit(
         bool startCodeFollows) {
     const uint8_t *data = *_data;
     size_t size = *_size;
+    bool endflag = false;
 
     *nalStart = NULL;
     *nalSize = 0;
@@ -267,6 +268,7 @@ status_t getNextNALUnit(
         if (offset == size) {
             if (startCodeFollows) {
                 offset = size + 2;
+                endflag = true;
                 break;
             }
 
@@ -281,7 +283,7 @@ status_t getNextNALUnit(
     }
 
     size_t endOffset = offset - 2;
-    while (endOffset > startOffset + 1 && data[endOffset - 1] == 0x00) {
+    if (!endflag && endOffset > startOffset + 1 && data[endOffset - 1] == 0x00) {
         --endOffset;
     }
 

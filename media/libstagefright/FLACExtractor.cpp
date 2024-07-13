@@ -442,6 +442,74 @@ static void copyMultiCh16(short *dst, const int *const *src, unsigned nSamples, 
 
 // 24-bit versions should do dithering or noise-shaping, here or in AudioFlinger
 
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+static inline int32_t clamp24_from_q8_23(int32_t ival)
+{
+    static const int32_t limpos = 0x7fffff;
+    static const int32_t limneg = -0x800000;
+    if (ival < limneg) {
+        return limneg;
+    } else if (ival > limpos) {
+        return limpos;
+			    } else {
+        return ival;
+    }
+}
+
+void p24_from_q8_23(uint8_t *dst, const int32_t *src)
+{
+        int32_t ival = clamp24_from_q8_23(*src++);
+
+#ifdef HAVE_BIG_ENDIAN
+        *dst++ = ival >> 16;
+        *dst++ = ival >> 8;
+        *dst++ = ival;
+#else
+        *dst++ = ival;
+        *dst++ = ival >> 8;
+        *dst++ = ival >> 16;
+#endif
+}
+
+static void copyMono24(
+        short *dst,
+        const int *const *src,
+        unsigned nSamples,
+        unsigned /* nChannels */) {
+    uint8_t * dst_ptr = (uint8_t *) dst;
+    for (unsigned i = 0; i < nSamples; ++i) {
+          p24_from_q8_23((uint8_t *)dst_ptr,(const int32_t *)&src[0][i]);
+          dst_ptr += 3;
+    }
+}
+
+static void copyStereo24(
+        short *dst,
+        const int *const *src,
+        unsigned nSamples,
+        unsigned /* nChannels */) {
+    uint8_t * dst_ptr= (uint8_t *) dst;
+    for (unsigned i = 0; i < nSamples; ++i) {
+        p24_from_q8_23((uint8_t *)dst_ptr,(const int32_t *)&src[0][i]);
+        dst_ptr += 3;
+        p24_from_q8_23((uint8_t *)dst_ptr,(const int32_t *)&src[1][i]);
+        dst_ptr += 3;
+    }
+}
+
+static void copyMultiCh24(short *dst, const int *const *src, unsigned nSamples, unsigned nChannels)
+{
+    uint8_t * dst_ptr= (uint8_t *) dst;
+
+    for (unsigned i = 0; i < nSamples; ++i) {
+        for (unsigned c = 0; c < nChannels; ++c) {
+            p24_from_q8_23((uint8_t *)dst_ptr,(const int32_t *)&src[c][i]);
+            dst_ptr += 3;
+        }
+    }
+}
+
+#else
 static void copyMono24(
         short *dst,
         const int *const *src,
@@ -471,6 +539,8 @@ static void copyMultiCh24(short *dst, const int *const *src, unsigned nSamples, 
         }
     }
 }
+
+#endif
 
 static void copyTrespass(
         short * /* dst */,
@@ -603,6 +673,11 @@ status_t FLACParser::init()
             { 2, 24, copyStereo24 },
             { 8, 24, copyMultiCh24 },
         };
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+        ALOGE("peter: flac: bits %d, samplerate %d, channel %d",getBitsPerSample(),getSampleRate(),getChannels());
+#endif
+
         for (unsigned i = 0; i < sizeof(table)/sizeof(table[0]); ++i) {
             if (table[i].mChannels >= getChannels() &&
                     table[i].mBitsPerSample == getBitsPerSample()) {
@@ -615,6 +690,11 @@ status_t FLACParser::init()
             mTrackMetadata->setCString(kKeyMIMEType, MEDIA_MIMETYPE_AUDIO_RAW);
             mTrackMetadata->setInt32(kKeyChannelCount, getChannels());
             mTrackMetadata->setInt32(kKeySampleRate, getSampleRate());
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+            mTrackMetadata->setInt32(kkBitsPerSample, getBitsPerSample());
+#endif
+
             // sample rate is non-zero, so division by zero not possible
             mTrackMetadata->setInt64(kKeyDuration,
                     (getTotalSamples() * 1000000LL) / getSampleRate());
@@ -633,7 +713,11 @@ void FLACParser::allocateBuffers()
 {
     CHECK(mGroup == NULL);
     mGroup = new MediaBufferGroup;
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    mMaxBufferSize = getMaxBlockSize() * getChannels() * sizeof(int32_t);
+#else
     mMaxBufferSize = getMaxBlockSize() * getChannels() * sizeof(short);
+#endif
     mGroup->add_buffer(new MediaBuffer(mMaxBufferSize));
 }
 
@@ -686,7 +770,18 @@ MediaBuffer *FLACParser::readBuffer(bool doSeek, FLAC__uint64 sample)
     if (err != OK) {
         return NULL;
     }
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    size_t bufferSize = 0;
+    if (getBitsPerSample() == 24) {
+        bufferSize = blocksize * getChannels() * 3;
+    } else {
+        bufferSize = blocksize * getChannels() * sizeof(short);
+    }
+#else
     size_t bufferSize = blocksize * getChannels() * sizeof(short);
+#endif
+
     CHECK(bufferSize <= mMaxBufferSize);
     short *data = (short *) buffer->data();
     buffer->set_range(0, bufferSize);
@@ -849,7 +944,7 @@ bool SniffFLAC(
     // no need to read rest of the header, as a premature EOF will be caught later
     uint8_t header[4+4];
     if (source->readAt(0, header, sizeof(header)) != sizeof(header)
-            || memcmp("fLaC\0\0\0\042", header, 4+4))
+            || (memcmp("fLaC\0\0\0\042", header, 4+4) && memcmp("fLaC\200\0\0\042", header, 4+4)))
     {
         return false;
     }

@@ -331,6 +331,13 @@ public:
     }
 };
 
+class DecryptHandleWrapper : public RefBase {
+public:
+    sp<DecryptHandle> handle;
+    virtual ~DecryptHandleWrapper() {
+	handle = NULL;
+    }
+};
 };
 
 #endif /* __DRM_FRAMEWORK_COMMON_H__ */

@@ -48,6 +48,7 @@
 
 #include <OMX_AudioExt.h>
 #include <OMX_VideoExt.h>
+#include <OMX_AudioSprdExt.h>
 #include <OMX_Component.h>
 #include <OMX_IndexExt.h>
 #include <OMX_AsString.h>
@@ -516,7 +517,8 @@ ACodec::ACodec()
       mTimePerFrameUs(-1ll),
       mTimePerCaptureUs(-1ll),
       mCreateInputBuffersSuspended(false),
-      mTunneled(false) {
+      mTunneled(false),
+      mUseUndequeuedBufs(false) {
     mUninitializedState = new UninitializedState(this);
     mLoadedState = new LoadedState(this);
     mLoadedToIdleState = new LoadedToIdleState(this);
@@ -537,6 +539,10 @@ ACodec::ACodec()
 }
 
 ACodec::~ACodec() {
+    while( !allYourBuffersAreBelongToUs(kPortIndexOutput)){
+        usleep(2000);
+        ALOGE("peter:~ACodec wait all buffer belong to us");
+    }
 }
 
 void ACodec::setNotificationMessage(const sp<AMessage> &msg) {
@@ -1071,7 +1077,11 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
         cancelEnd = mBuffers[kPortIndexOutput].size();
     } else {
         // Return the required minimum undequeued buffers to the native window.
-        cancelStart = bufferCount - minUndequeuedBuffers;
+        if (mUseUndequeuedBufs) {
+          cancelStart = bufferCount;
+        } else {
+          cancelStart = bufferCount - minUndequeuedBuffers;
+        }
         cancelEnd = bufferCount;
     }
 
@@ -1423,6 +1433,12 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
 
 status_t ACodec::freeBuffersOnPort(OMX_U32 portIndex) {
     status_t err = OK;
+    if(portIndex == kPortIndexOutput){
+        while(!allYourBuffersAreBelongToUs(kPortIndexOutput)){
+            usleep(2000);
+            ALOGE("peter:freeBuffersOnPort wait all buffer belong to us");
+        }
+    }
     for (size_t i = mBuffers[portIndex].size(); i > 0;) {
         i--;
         status_t err2 = freeBuffer(portIndex, i);
@@ -1572,8 +1588,12 @@ status_t ACodec::setComponentRole(
             "video_decoder.mpeg2", "video_encoder.mpeg2" },
         { MEDIA_MIMETYPE_AUDIO_AC3,
             "audio_decoder.ac3", "audio_encoder.ac3" },
+        { MEDIA_MIMETYPE_AUDIO_IMAADPCM,
+            "audio_decoder.imaadpcm", "audio_encoder.imaadpcm" },
         { MEDIA_MIMETYPE_AUDIO_EAC3,
             "audio_decoder.eac3", "audio_encoder.eac3" },
+        { MEDIA_MIMETYPE_VIDEO_MJPG,
+            "video_decoder.mjpg", "video_encoder.mjpg" },
     };
 
     static const size_t kNumMimeToRole =
@@ -1624,7 +1644,27 @@ status_t ACodec::configureCodec(
     if (!msg->findInt32("encoder", &encoder)) {
         encoder = false;
     }
+#ifdef CONFIG_SPRD_RECORD_EIS
+    int32_t eismode;
+    if (encoder && msg->findInt32("eis-mode", &eismode)){
+        OMX_INDEXTYPE index;
+        status_t err =
+            mOMX->getExtensionIndex(
+                    mNode,
+                    "OMX.sprd.index.EISMode",
+                    &index);
 
+        if (err == OK) {
+           OMX_BOOL enable = OMX_TRUE;
+           err=mOMX->setParameter(
+                       mNode, index, &enable, sizeof(enable));
+        }
+        if (err != OK) {
+            ALOGE("Encoder could nus_tot be configured to eismode(err %d)", err);
+            return err;
+        }
+    }
+#endif
     sp<AMessage> inputFormat = new AMessage();
     sp<AMessage> outputFormat = mNotify->dup(); // will use this for kWhatOutputFormatChanged
 
@@ -1996,6 +2036,19 @@ status_t ACodec::configureCodec(
                     sampleRate,
                     numChannels);
         }
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II)) {
+        int32_t numChannels, sampleRate;
+        if (!msg->findInt32("channel-count", &numChannels)
+                || !msg->findInt32("sample-rate", &sampleRate)) {
+            // Since we did not always check for these, leave them optional
+            // and have the decoder figure it all out.
+            err = OK;
+        } else {
+            err = setupRawAudioFormat(
+                    encoder ? kPortIndexInput : kPortIndexOutput,
+                    sampleRate,
+                    numChannels);
+        }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC)) {
         int32_t numChannels, sampleRate;
         if (!msg->findInt32("channel-count", &numChannels)
@@ -2071,6 +2124,7 @@ status_t ACodec::configureCodec(
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
         int32_t numChannels = 0, sampleRate = 0, compressionLevel = -1;
+
         if (encoder &&
                 (!msg->findInt32("channel-count", &numChannels)
                         || !msg->findInt32("sample-rate", &sampleRate))) {
@@ -2105,7 +2159,14 @@ status_t ACodec::configureCodec(
                 || !msg->findInt32("sample-rate", &sampleRate)) {
             err = INVALID_OPERATION;
         } else {
-            err = setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+           int32_t bitspersample = 0;
+           msg->findInt32("bitspersample", &bitspersample);
+           ALOGE("peter:  setrawaudioformat %d",bitspersample);
+           err = setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels, bitspersample);
+#else
+           err = setupRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+#endif
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AC3)) {
         int32_t numChannels;
@@ -2124,6 +2185,17 @@ status_t ACodec::configureCodec(
             err = INVALID_OPERATION;
         } else {
             err = setupEAC3Codec(encoder, numChannels, sampleRate);
+        }
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_IMAADPCM)) {
+        int32_t numChannels;
+        int32_t sampleRate;
+        int32_t blockAlign;
+        if (!msg->findInt32("channel-count", &numChannels)
+                || !msg->findInt32("sample-rate", &sampleRate)
+                || !msg->findInt32("block-align", &blockAlign)) {
+            err = INVALID_OPERATION;
+        }else {
+            err = setIMAADPCMFormat(numChannels, sampleRate, blockAlign);
         }
     }
 
@@ -2148,6 +2220,10 @@ status_t ACodec::configureCodec(
     int32_t maxInputSize;
     if (msg->findInt32("max-input-size", &maxInputSize)) {
         err = setMinBufferSize(kPortIndexInput, (size_t)maxInputSize);
+        //sprd added. inputPort must be identical to output for raw decoder.
+        if((err == OK) && !strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_RAW) ) {
+            err = setMinBufferSize(kPortIndexOutput, (size_t)maxInputSize);
+        }
     } else if (!strcmp("OMX.Nvidia.aac.decoder", mComponentName.c_str())) {
         err = setMinBufferSize(kPortIndexInput, 8192);  // XXX
     }
@@ -2167,6 +2243,28 @@ status_t ACodec::configureCodec(
         err = setOperatingRate(rateFloat, video);
     }
 
+    //check thumbnail mode
+    int32_t thumbnail;
+    if (msg->findInt32("thumbnail", &thumbnail)) {
+        OMX_INDEXTYPE index;
+
+        status_t err =
+            mOMX->getExtensionIndex(
+                    mNode,
+                    "OMX.sprd.index.ThumbnailMode",
+                    &index);
+
+        if (err == OK) {
+            OMX_BOOL enable = OMX_TRUE;
+            err = mOMX->setConfig(mNode, index, &enable, sizeof(enable));
+        }
+
+        if (err != OK) {
+            ALOGI("[%s] setConfig(OMX.sprd.index.ThumbnailMode') invalid 0x%08x",
+                    mComponentName.c_str(), err);
+        }
+    }
+
     mBaseOutputFormat = outputFormat;
 
     err = getPortFormat(kPortIndexInput, inputFormat);
@@ -2177,6 +2275,14 @@ status_t ACodec::configureCodec(
             mOutputFormat = outputFormat;
         }
     }
+
+    int32_t useUndequeuedBufs;
+    if (msg->findInt32("moz-use-undequeued-bufs", &useUndequeuedBufs)) {
+        mUseUndequeuedBufs = true;
+    } else {
+        mUseUndequeuedBufs = false;
+    }
+
     return err;
 }
 
@@ -2418,6 +2524,7 @@ status_t ACodec::setupAACCodec(
             : OMX_AUDIO_AACStreamFormatMP4FF;
 
     OMX_AUDIO_PARAM_ANDROID_AACPRESENTATIONTYPE presentation;
+    InitOMXParams(&presentation);
     presentation.nMaxOutputChannels = maxOutputChannelCount;
     presentation.nDrcCut = drc.drcCut;
     presentation.nDrcBoost = drc.drcBoost;
@@ -2511,6 +2618,53 @@ status_t ACodec::setupEAC3Codec(
             (OMX_INDEXTYPE)OMX_IndexParamAudioAndroidEac3,
             &def,
             sizeof(def));
+}
+
+status_t ACodec::setIMAADPCMFormat(int32_t numChannels, int32_t sampleRate, int32_t blockAlign) {
+    CHECK(!mIsEncoder);
+
+    // port definition
+    OMX_PARAM_PORTDEFINITIONTYPE def;
+    InitOMXParams(&def);
+    def.nPortIndex = kPortIndexInput;
+    status_t err = mOMX->getParameter(
+            mNode, OMX_IndexParamPortDefinition, &def, sizeof(def));
+    if (err != OK) {
+        return err;
+    }
+
+    def.format.audio.eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingIMAADPCM;
+    err = mOMX->setParameter(mNode, OMX_IndexParamPortDefinition,
+            &def, sizeof(def));
+    if (err != OK) {
+        return err;
+    }
+
+    // pcm param
+
+    OMX_INDEXTYPE index;
+    err = mOMX->getExtensionIndex(
+                    mNode,
+                    "OMX.sprd.index.AudioImaadpam",
+                    &index);
+    if (err == OK) {
+        int32_t IMAADPCMFormat[4] = {0};
+        IMAADPCMFormat[0] = numChannels;
+        IMAADPCMFormat[1] = 4;
+        IMAADPCMFormat[2] = sampleRate;
+        IMAADPCMFormat[3] = blockAlign;
+        err = mOMX->setParameter(
+                mNode,
+                index,
+                &IMAADPCMFormat,
+                sizeof(IMAADPCMFormat));
+    }
+    if (err != OK) {
+        ALOGE("Failed to set parameter 'audioimaadpam' (err %d)", err);
+        return err;
+    }
+
+    return err;
 }
 
 static OMX_AUDIO_AMRBANDMODETYPE pickModeFromBitRate(
@@ -2624,7 +2778,11 @@ status_t ACodec::setupFlacCodec(
 }
 
 status_t ACodec::setupRawAudioFormat(
-        OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels) {
+        OMX_U32 portIndex, int32_t sampleRate, int32_t numChannels
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+        ,int32_t bitsPerSample
+#endif
+                                                                                            ) {
     OMX_PARAM_PORTDEFINITIONTYPE def;
     InitOMXParams(&def);
     def.nPortIndex = portIndex;
@@ -2659,7 +2817,15 @@ status_t ACodec::setupRawAudioFormat(
     pcmParams.nChannels = numChannels;
     pcmParams.eNumData = OMX_NumericalDataSigned;
     pcmParams.bInterleaved = OMX_TRUE;
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    if (bitsPerSample) {
+         pcmParams.nBitPerSample = bitsPerSample;
+    } else {
+        pcmParams.nBitPerSample = 16;
+    }
+#else
     pcmParams.nBitPerSample = 16;
+#endif
     pcmParams.nSamplingRate = sampleRate;
     pcmParams.ePCMMode = OMX_AUDIO_PCMModeLinear;
 
@@ -2839,6 +3005,7 @@ static const struct VideoCodingMapEntry {
     { MEDIA_MIMETYPE_VIDEO_MPEG2, OMX_VIDEO_CodingMPEG2 },
     { MEDIA_MIMETYPE_VIDEO_VP8, OMX_VIDEO_CodingVP8 },
     { MEDIA_MIMETYPE_VIDEO_VP9, OMX_VIDEO_CodingVP9 },
+    { MEDIA_MIMETYPE_VIDEO_MJPG, OMX_VIDEO_CodingMJPEG },
 };
 
 static status_t GetVideoCodingTypeFromMime(
@@ -4177,11 +4344,20 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                         return err;
                     }
 
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
                     if (params.nChannels <= 0
-                            || (params.nChannels != 1 && !params.bInterleaved)
-                            || params.nBitPerSample != 16u
-                            || params.eNumData != OMX_NumericalDataSigned
-                            || params.ePCMMode != OMX_AUDIO_PCMModeLinear) {
+                        || (params.nChannels != 1 && !params.bInterleaved)
+                        || ((params.nBitPerSample != 16u) && (params.nBitPerSample != 32u)
+                        && (params.nBitPerSample != 24u))
+                        || params.eNumData != OMX_NumericalDataSigned
+                        || params.ePCMMode != OMX_AUDIO_PCMModeLinear) {
+#else
+                    if (params.nChannels <= 0
+                        || (params.nChannels != 1 && !params.bInterleaved)
+                        || params.nBitPerSample != 16u
+                        || params.eNumData != OMX_NumericalDataSigned
+                        || params.ePCMMode != OMX_AUDIO_PCMModeLinear) {
+#endif
                         ALOGE("unsupported PCM port: %u channels%s, %u-bit, %s(%d), %s(%d) mode ",
                                 params.nChannels,
                                 params.bInterleaved ? " interleaved" : "",
@@ -4194,6 +4370,10 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     notify->setString("mime", MEDIA_MIMETYPE_AUDIO_RAW);
                     notify->setInt32("channel-count", params.nChannels);
                     notify->setInt32("sample-rate", params.nSamplingRate);
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+                    notify->setInt32("bitspersample", params.nBitPerSample);
+#endif
 
                     if (mChannelMaskPresent) {
                         notify->setInt32("channel-mask", mChannelMask);
@@ -4394,6 +4574,31 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     notify->setString("mime", MEDIA_MIMETYPE_AUDIO_MSGSM);
                     notify->setInt32("channel-count", params.nChannels);
                     notify->setInt32("sample-rate", params.nSamplingRate);
+                    break;
+                }
+
+                case OMX_AUDIO_CodingIMAADPCM:
+                {
+                    OMX_INDEXTYPE index;
+                    status_t err = mOMX->getExtensionIndex(
+                            mNode,
+                            "OMX.sprd.index.AudioImaadpam",
+                            &index);
+                    int32_t IMAADPCMFormat[4] = {0};
+                    if (err == OK) {
+                        err = mOMX->getParameter(
+                            mNode,
+                            index,
+                            &IMAADPCMFormat,
+                            sizeof(IMAADPCMFormat));
+                    }
+                    if (err != OK) {
+                        ALOGE("Failed to get parameter 'codingimaadpcm' (err %d)", err);
+                        return err;
+                    }
+                    notify->setString("mime", MEDIA_MIMETYPE_AUDIO_IMAADPCM);
+                    notify->setInt32("channel-count", IMAADPCMFormat[0]);
+                    notify->setInt32("sample-rate", IMAADPCMFormat[2]);
                     break;
                 }
 
@@ -5677,7 +5882,16 @@ bool ACodec::LoadedState::onConfigureComponent(
         const sp<AMessage> &msg) {
     ALOGV("onConfigureComponent");
 
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    int32_t bitspersample = 0;
+#endif
+
     CHECK(mCodec->mNode != 0);
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+    msg->findInt32("bitspersample", &bitspersample);
+    ALOGE("peter: ACodec: bitspersamples %d",bitspersample);
+#endif
 
     status_t err = OK;
     AString mime;
@@ -6271,6 +6485,32 @@ bool ACodec::ExecutingState::onMessageReceived(const sp<AMessage> &msg) {
 }
 
 status_t ACodec::setParameters(const sp<AMessage> &params) {
+#ifdef CONFIG_SPRD_RECORD_EIS
+    int64_t actualtimeus;
+    int64_t origtimeus;
+    if (params->findInt64("actualTime", &actualtimeus) && params->findInt64("originalTime", &origtimeus)) {
+        OMX_INDEXTYPE index;
+        status_t err =
+            mOMX->getExtensionIndex(
+                    mNode,
+                    "OMX.sprd.index.VideoTimeUs",
+                    &index);
+        if (err == OK) {
+            List<int64_t> recordtimes;
+            recordtimes.push_back(actualtimeus);
+            recordtimes.push_back(origtimeus);
+            err = mOMX->setConfig(
+                mNode,
+                index,
+                &recordtimes,
+                sizeof(recordtimes));
+        }
+        if (err != OK) {
+            ALOGE("Failed to set parameter 'actualtimeus' (err %d)", err);
+            return err;
+        }
+    }
+#endif
     int32_t videoBitrate;
     if (params->findInt32("video-bitrate", &videoBitrate)) {
         OMX_VIDEO_CONFIG_BITRATETYPE configParams;
@@ -6345,6 +6585,32 @@ status_t ACodec::setParameters(const sp<AMessage> &params) {
         }
     }
 
+    AString mode;
+    if (params->findString("scene-mode", &mode)){
+        OMX_INDEXTYPE index;
+        status_t err =
+            mOMX->getExtensionIndex(
+                    mNode,
+                    "OMX.sprd.index.EncSceneMode",
+                    &index);
+        if (err == OK) {
+            int encMode =0;
+            if (mode==AString("Volte")) {
+                encMode = 1;
+            } else if (mode==AString("Wfd")) {
+                encMode = 2;
+            }
+            err = mOMX->setConfig(
+                mNode,
+                index,
+                &encMode,
+                sizeof(encMode));
+        }
+        if (err != OK) {
+            ALOGE("Failed to set config 'encmode' (err %d)", err);
+            return err;
+        }
+    }
     return OK;
 }
 
@@ -6481,7 +6747,14 @@ bool ACodec::OutputPortSettingsChangedState::onOMXEvent(
                             mCodec->mBuffers[kPortIndexOutput].size());
                     err = FAILED_TRANSACTION;
                 } else {
-                    mCodec->mDealer[kPortIndexOutput].clear();
+                    while(1){
+                        if(mCodec->allYourBuffersAreBelongToUs(kPortIndexOutput)){
+                            mCodec->mDealer[kPortIndexOutput].clear();
+                            break;
+                        }
+                        ALOGE("peter: wait all out buffer belong to us");
+                        usleep(2000);
+                    }
                 }
 
                 if (err == OK) {

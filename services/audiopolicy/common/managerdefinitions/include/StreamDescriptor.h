@@ -38,6 +38,7 @@ public:
     int getVolumeIndexMax() const { return mIndexMax; }
     void setVolumeIndexMin(int volIndexMin);
     void setVolumeIndexMax(int volIndexMax);
+    void setCanBeMuted(bool canBeMuted);/*sprd add for camera*/
 
     void dump(int fd) const;
 
@@ -79,7 +80,7 @@ public:
 
     void setVolumeIndexMin(audio_stream_type_t stream,int volIndexMin);
     void setVolumeIndexMax(audio_stream_type_t stream,int volIndexMax);
-
+    void setCanBeMuted(audio_stream_type_t stream, bool canBeMuted);/*sprd add for camera*/
 };
 
 }; // namespace android

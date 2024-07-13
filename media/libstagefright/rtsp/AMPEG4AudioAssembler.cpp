@@ -369,6 +369,11 @@ sp<ABuffer> AMPEG4AudioAssembler::removeLATMFraming(const sp<ABuffer> &buffer) {
     uint8_t *ptr = buffer->data();
 
     for (size_t i = 0; i <= mNumSubFrames; ++i) {
+        /* Modify by SPRD for Bug502010: 2015.11.23 Start */
+        if (offset >= buffer->size()) {
+            break;
+        }
+        /* Modify by SPRD for Bug502010: 2015.11.23 End */
         // parse PayloadLengthInfo
 
         unsigned payloadLength = 0;

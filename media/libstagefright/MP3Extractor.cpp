@@ -214,7 +214,7 @@ public:
     MP3Source(
             const sp<MetaData> &meta, const sp<DataSource> &source,
             off64_t first_frame_pos, uint32_t fixed_header,
-            const sp<MP3Seeker> &seeker);
+            const sp<MP3Seeker> &seeker, bool Is_Vbr_S);
 
     virtual status_t start(MetaData *params = NULL);
     virtual status_t stop();
@@ -241,17 +241,85 @@ private:
 
     int64_t mBasisTimeUs;
     int64_t mSamplesRead;
+    bool mIsVbr_S;
 
     MP3Source(const MP3Source &);
     MP3Source &operator=(const MP3Source &);
 };
 
+#define BYTE_TO_CHECK 1024*30
+#define BYTE_CAL_AVGB BYTE_TO_CHECK*10
+bool MP3Extractor::TestVBR(const sp<DataSource> &source, int *avg_bitrate, uint32_t match_header,
+        off64_t inout_pos){
+
+    off64_t pos = inout_pos;
+    bool vbr_valid = false;
+    size_t kMaxBytesChecked = BYTE_TO_CHECK;
+    int total_bitrate = 0;
+    int total_count =0;
+    int prev_bitrate = -1;
+    uint8_t tmp[4];
+
+    if(!mMeta->findInt32(kKeyBitRate, &prev_bitrate))
+    {
+        prev_bitrate = -1;
+    }
+
+    do {
+        if (pos >=(off64_t)( inout_pos + kMaxBytesChecked)) {
+            // Don't scan forever.
+            //ALOGE("wangzuo:giving up at offset %lld", pos);
+            break;
+        }
+        if (source->readAt(pos, tmp, 4) < 4) {
+            ALOGE("wangzuo:end of the file");
+            break;
+        }
+
+        uint32_t header = U32_AT(tmp);
+        size_t frame_size;
+        int sample_rate, num_channels, bitrate;
+        if ((match_header != 0 && (header & kMask) != (match_header & kMask))||!GetMPEGAudioFrameSize(
+            header, &frame_size,&sample_rate, &num_channels, &bitrate)) {
+            ALOGE("wangzuo:to do resync");
+            if (!Resync(mDataSource, mFixedHeader, &pos, NULL, NULL)) {
+                ALOGE("wangzuo:Unable to resync. break");
+                break ;
+            }
+            continue;
+        }
+        //ALOGE("wangzuo0:AVG_Bitrate %d,count %d pos %lld",(*avg_bitrate),total_count,pos);
+        if (prev_bitrate == -1) {
+            prev_bitrate = bitrate;
+            total_bitrate += bitrate;
+            total_count ++;
+            //ALOGE("wangzuo1:AVG_Bitrate %d,count %d pos %lld frame_size %d",(*avg_bitrate),total_count,pos,frame_size);
+        } else {
+            if ((prev_bitrate != bitrate)&&!vbr_valid)
+            {
+                vbr_valid = true;
+                kMaxBytesChecked = BYTE_CAL_AVGB;
+            };
+            prev_bitrate = bitrate;
+            total_bitrate += bitrate;
+            total_count ++;
+            //ALOGE("wangzuo2:AVG_Bitrate %d,count %d pos %lld frame_size %d",(*avg_bitrate),total_count,pos,frame_size);
+        }
+        //ALOGE("wangzuo3:AVG_Bitrate %d,count %d pos %lld frame_size %d",(*avg_bitrate),total_count,pos,frame_size);
+        pos = pos + frame_size;
+        //ALOGE("wangzuo4:AVG_Bitrate %d,count %d pos %lld frame_size %d",(*avg_bitrate),total_count,pos,frame_size);
+    } while (1);
+    *avg_bitrate = (total_bitrate + (total_count >>1))/total_count;
+    //ALOGE("wangzuo:AVG_Bitrate %d,count %d vbr_valid %d",(*avg_bitrate),total_count,vbr_valid);
+    return vbr_valid;
+}
 MP3Extractor::MP3Extractor(
         const sp<DataSource> &source, const sp<AMessage> &meta)
     : mInitCheck(NO_INIT),
       mDataSource(source),
       mFirstFramePos(-1),
-      mFixedHeader(0) {
+      mFixedHeader(0),
+      mIsVbr(false){
     off64_t pos = 0;
     off64_t post_id3_pos;
     uint32_t header;
@@ -346,8 +414,16 @@ MP3Extractor::MP3Extractor(
     mMeta->setInt32(kKeyChannelCount, num_channels);
 
     int64_t durationUs;
-
-    if (mSeeker == NULL || !mSeeker->getDuration(&durationUs)) {
+    int64_t tempPos = 0;
+    int64_t tempTime = 0;
+    int32_t AVG_Bitrate = 0;
+    if (mSeeker == NULL || !mSeeker->getDuration(&durationUs) || !mSeeker->getOffsetForTime(&tempTime,&tempPos)) {
+        if(TestVBR(mDataSource,&AVG_Bitrate,mFixedHeader,mFirstFramePos))
+        {
+            bitrate = AVG_Bitrate;
+            mMeta->setInt32(kKeyBitRate, bitrate * 1000);
+            mIsVbr = true;
+        }
         off64_t fileSize;
         if (mDataSource->getSize(&fileSize) == OK) {
             durationUs = 8000LL * (fileSize - mFirstFramePos) / bitrate;
@@ -407,7 +483,7 @@ sp<MediaSource> MP3Extractor::getTrack(size_t index) {
 
     return new MP3Source(
             mMeta, mDataSource, mFirstFramePos, mFixedHeader,
-            mSeeker);
+            mSeeker,mIsVbr);
 }
 
 sp<MetaData> MP3Extractor::getTrackMetaData(
@@ -431,7 +507,7 @@ const size_t MP3Source::kMaxFrameSize = (1 << 12); /* 4096 bytes */
 MP3Source::MP3Source(
         const sp<MetaData> &meta, const sp<DataSource> &source,
         off64_t first_frame_pos, uint32_t fixed_header,
-        const sp<MP3Seeker> &seeker)
+        const sp<MP3Seeker> &seeker,bool Is_Vbr_S)
     : mMeta(meta),
       mDataSource(source),
       mFirstFramePos(first_frame_pos),
@@ -442,7 +518,8 @@ MP3Source::MP3Source(
       mSeeker(seeker),
       mGroup(NULL),
       mBasisTimeUs(0),
-      mSamplesRead(0) {
+      mSamplesRead(0),
+      mIsVbr_S(Is_Vbr_S) {
 }
 
 MP3Source::~MP3Source() {
@@ -491,7 +568,7 @@ status_t MP3Source::read(
     int64_t seekTimeUs;
     ReadOptions::SeekMode mode;
     bool seekCBR = false;
-
+    int32_t bitrate_l;
     if (options != NULL && options->getSeekTo(&seekTimeUs, &mode)) {
         int64_t actualSeekTimeUs = seekTimeUs;
         if (mSeeker == NULL
@@ -502,10 +579,21 @@ status_t MP3Source::read(
                 ALOGI("no bitrate");
 
                 return ERROR_UNSUPPORTED;
+            } else {
+                bitrate_l = bitrate;
+                ALOGE(" bitrate_l %d",bitrate_l);
             }
 
             mCurrentTimeUs = seekTimeUs;
             mCurrentPos = mFirstFramePos + seekTimeUs * bitrate / 8000000;
+            off64_t fileSize;
+            if ((mDataSource->getSize(&fileSize) == OK)&&(mCurrentPos > fileSize)){
+                int64_t durationUs;
+                mMeta->findInt64(kKeyDuration, &durationUs);
+                if(durationUs != 0)
+                    mCurrentPos = mFirstFramePos + ((actualSeekTimeUs*(fileSize - mFirstFramePos)) + (durationUs >> 1))/durationUs ;
+               // ALOGE("wangzuo3 actualSeekTimeUs %lld,mCurrentPos %lld durationUs %lld fileSize %lld",actualSeekTimeUs,mCurrentPos,durationUs,fileSize);
+            }
             seekCBR = true;
         } else {
             mCurrentTimeUs = actualSeekTimeUs;
@@ -543,6 +631,11 @@ status_t MP3Source::read(
 
             // re-calculate mCurrentTimeUs because we might have called Resync()
             if (seekCBR) {
+                if(mIsVbr_S){
+                    ALOGE("mIsVbr_S is true.");
+                    bitrate = bitrate_l/1000;
+                }
+                //ALOGE("bitrate %d mCurrentTimeUs %lld,mCurrentPos %lld",bitrate,mCurrentTimeUs,mCurrentPos);
                 mCurrentTimeUs = (mCurrentPos - mFirstFramePos) * 8000 / bitrate;
                 mBasisTimeUs = mCurrentTimeUs;
             }

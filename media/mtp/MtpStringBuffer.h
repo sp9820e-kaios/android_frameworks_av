@@ -48,6 +48,7 @@ public:
 
     bool            readFromPacket(MtpDataPacket* packet);
     void            writeToPacket(MtpDataPacket* packet) const;
+    void            trim();
 
     inline int      getCharCount() const { return mCharCount; }
     inline int      getByteCount() const { return mByteCount; }

@@ -300,6 +300,20 @@ CaptureSequencer::CaptureState CaptureSequencer::manageDone(sp<Camera2Client> &c
         processor->clearZslQueue();
     }
 
+    if(mCaptureBuffer == 0) {
+        int i;
+        for(i= 0; i < 500; i++) {
+            usleep(1000);
+            if(mCaptureBuffer != 0) {
+                break;
+            }
+        }
+        if(mCaptureBuffer == 0)
+        {
+            ALOGE("%s: Timing disorder, onCaptureAvailable not executing!", __FUNCTION__);
+        }
+    }
+
     /**
      * Fire the jpegCallback in Camera#takePicture(..., jpegCallback)
      */

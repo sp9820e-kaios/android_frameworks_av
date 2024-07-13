@@ -41,6 +41,9 @@ public:
     virtual status_t      connect(const sp<TCamCallbacks>& callbacks);
     virtual void          disconnect();
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    virtual int          cancelPicture();
+#endif
     /**
      * Interface used by CameraService
      */
@@ -57,7 +60,7 @@ public:
     virtual ~Camera2ClientBase();
 
     virtual status_t      initialize(CameraModule *module);
-    virtual status_t      dump(int fd, const Vector<String16>& args);
+    virtual status_t      dumpClient(int fd, const Vector<String16>& args);
 
     /**
      * CameraDeviceBase::NotificationListener implementation

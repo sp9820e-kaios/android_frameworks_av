@@ -186,6 +186,9 @@ CameraSource::CameraSource(
       mNumGlitches(0),
       mGlitchDurationThresholdUs(200000),
       mCollectStats(false) {
+#ifdef CONFIG_SPRD_RECORD_EIS
+    mEISMode = false;
+#endif
     mVideoSize.width  = -1;
     mVideoSize.height = -1;
 
@@ -525,6 +528,11 @@ status_t CameraSource::initWithCameraAccess(
         return err;
     }
 
+#ifdef CONFIG_SPRD_RECORD_EIS
+    if (params.get(CameraParameters::KEY_EOIS)) {
+        mEISMode = !strcmp(params.get(CameraParameters::KEY_EOIS),"true");
+    }
+#endif
     // Set the camera to use the requested video frame size
     // and/or frame rate.
     if ((err = configureCamera(&params,
@@ -575,6 +583,11 @@ status_t CameraSource::initWithCameraAccess(
     mMeta->setInt32(kKeyStride,      mVideoSize.width);
     mMeta->setInt32(kKeySliceHeight, mVideoSize.height);
     mMeta->setInt32(kKeyFrameRate,   mVideoFrameRate);
+#ifdef CONFIG_SPRD_RECORD_EIS
+    if (mEISMode) {
+        mMeta->setInt32(kKeyEISMode, mEISMode);
+    }
+#endif
     return OK;
 }
 
@@ -867,6 +880,14 @@ status_t CameraSource::read(
         (*buffer)->setObserver(this);
         (*buffer)->add_ref();
         (*buffer)->meta_data()->setInt64(kKeyTime, frameTime);
+#ifdef CONFIG_SPRD_RECORD_EIS
+        if (mEISMode) {
+            int64_t actualframeTime;
+            actualframeTime = *mActualFrameTimes.begin();
+            mActualFrameTimes.erase(mActualFrameTimes.begin());
+            (*buffer)->meta_data()->setInt64(kKeyActualTime, actualframeTime);
+        }
+#endif
     }
     return OK;
 }
@@ -920,6 +941,11 @@ void CameraSource::dataCallbackTimestamp(int64_t timestampUs,
     mFramesReceived.push_back(data);
     int64_t timeUs = mStartTimeUs + (timestampUs - mFirstFrameTimeUs);
     mFrameTimes.push_back(timeUs);
+#ifdef CONFIG_SPRD_RECORD_EIS
+    if (mEISMode) {
+        mActualFrameTimes.push_back(timestampUs);
+    }
+#endif
     ALOGV("initial delay: %" PRId64 ", current time stamp: %" PRId64,
         mStartTimeUs, timeUs);
     mFrameAvailableCondition.signal();

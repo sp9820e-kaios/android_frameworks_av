@@ -106,7 +106,26 @@ public:
     void getSupportedPictureSizes(Vector<Size> &sizes) const;
     void setPictureFormat(const char *format);
     const char *getPictureFormat() const;
-
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    int getSprdBrightNess() const;
+    void setSprdBrightNess(int brightness);
+    int getSprdSlowMotion() const;
+    void setSprdSlowMotion(int slowmotion);
+    int getSprdISO() const;
+    void setSprdISO(int iso);
+    int getSprdMeteringMode() const;
+    void setSprdMeteringMode(int metermode);
+    int getSprdSaturation() const;
+    void setSprdSaturation(int saturation);
+    int getSprdContrast() const;
+    void setSprdContrast(int contrast);
+    int getSprdSensorOrient() const;
+    int getSprdSensorRot() const;
+    int getSprdPerfectSkinLevel() const;
+    void setSprdPerfectSkinLevel(int skinlevel);
+    const char *getSprdEOIS() const;
+    void setSprdEOIS(const char *eois);
+#endif
     void dump() const;
     status_t dump(int fd, const Vector<String16>& args) const;
 

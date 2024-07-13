@@ -199,6 +199,10 @@ private:
     List<sp<IMemory> > mFramesBeingEncoded;
     List<int64_t> mFrameTimes;
 
+#ifdef CONFIG_SPRD_RECORD_EIS
+    List<int64_t> mActualFrameTimes;
+    bool mEISMode;
+#endif
     int64_t mFirstFrameTimeUs;
     int32_t mNumFramesDropped;
     int32_t mNumGlitches;

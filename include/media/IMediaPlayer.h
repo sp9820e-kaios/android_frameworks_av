@@ -44,7 +44,7 @@ public:
     DECLARE_META_INTERFACE(MediaPlayer);
 
     virtual void            disconnect() = 0;
-
+    virtual void            setNeedConsume(bool needConsume) = 0;
     virtual status_t        setDataSource(
             const sp<IMediaHTTPService> &httpService,
             const char *url,

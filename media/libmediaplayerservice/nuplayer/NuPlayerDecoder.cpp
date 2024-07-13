@@ -39,6 +39,10 @@
 #include "avc_utils.h"
 #include "ATSParser.h"
 
+#ifdef CONFIG_VSP_SUPPORT_1080I
+#include "avc_utils_sprd.h"
+#endif
+
 namespace android {
 
 static inline bool getAudioDeepBufferSetting() {
@@ -251,8 +255,27 @@ void NuPlayer::Decoder::onConfigure(const sp<AMessage> &format) {
     mComponentName.append(" decoder");
     ALOGV("[%s] onConfigure (surface=%p)", mComponentName.c_str(), mSurface.get());
 
+#ifdef CONFIG_VSP_SUPPORT_1080I
+    if (mIsVideoAVC) {
+        sp<ABuffer> sps;
+
+        if (format->findBuffer("csd-0", &sps) && isInterlacedSequence(sps->data(), sps->size()) == 1) {
+            ALOGI("interlace avc stream, create vpu decoder");
+            mCodec = MediaCodec::CreateByComponentName(mCodecLooper,
+                             "OMX.vpu.video_decoder.avc", NULL /* err */, mPid);
+        } else {
+            mCodec = MediaCodec::CreateByType(mCodecLooper, mime.c_str(),
+                             false /* encoder */, NULL /* err */, mPid);
+        }
+    } else {
+        mCodec = MediaCodec::CreateByType(mCodecLooper, mime.c_str(),
+                             false /* encoder */, NULL /* err */, mPid);
+    }
+#else
     mCodec = MediaCodec::CreateByType(
             mCodecLooper, mime.c_str(), false /* encoder */, NULL /* err */, mPid);
+#endif
+
     int32_t secure = 0;
     if (format->findInt32("secure", &secure) && secure != 0) {
         if (mCodec != NULL) {
@@ -557,6 +580,11 @@ bool NuPlayer::Decoder::handleAnOutputBuffer(
 //    CHECK_LT(bufferIx, mOutputBuffers.size());
     sp<ABuffer> buffer;
     mCodec->getOutputBuffer(index, &buffer);
+    if (buffer == NULL) {
+        ALOGE("%s getOutputBuffer failed, buffer == NULL", __FUNCTION__);
+        handleError(BAD_VALUE);
+        return false;
+    }
 
     if (index >= mOutputBuffers.size()) {
         for (size_t i = mOutputBuffers.size(); i <= index; ++i) {

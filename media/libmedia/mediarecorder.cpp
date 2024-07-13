@@ -29,8 +29,11 @@
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
 #include <media/stagefright/PersistentSurface.h>
 #include <gui/IGraphicBufferProducer.h>
+#include <cutils/properties.h>
+#include <binder/IPCThreadState.h>
 
 namespace android {
+int judge(int uid, const String16& name, int oprID, int oprType, const String16& param);
 
 status_t MediaRecorder::setCamera(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy)
 {
@@ -487,6 +490,32 @@ status_t MediaRecorder::start()
         return INVALID_OPERATION;
     }
 
+#ifdef USE_PROJECT_SEC
+    char value[PROPERTY_VALUE_MAX] = ""; //PROPERTY_VALUE_MAX 92
+    String16 param;
+    property_get("service.project.sec", value, "0"); // Get disconnection error code
+    if(0 == strcmp(value, "1")){
+    int uid =IPCThreadState::self()->getCallingUid();
+    int permission = 1 ;
+    if (!mIsVideoSourceSet)
+    {
+         permission = judge(uid, String16("media.recorder"),10,0,param);
+    } else{
+	 ALOGD("IS video source");
+         permission = judge(uid, String16("media.recorder"),10,0,param);
+    }
+    if ( permission > 0){
+        ALOGE("MediaRecorder start allow");
+    }
+    else{
+        ALOGE("MediaRecorder start reject");
+        ALOGE("start failed: %d",permission);
+        mCurrentState = MEDIA_RECORDER_ERROR;
+        return INVALID_OPERATION;
+    }
+    }
+#endif
+
     status_t ret = mMediaRecorder->start();
     if (OK != ret) {
         ALOGE("start failed: %d", ret);
@@ -497,6 +526,52 @@ status_t MediaRecorder::start()
     return ret;
 }
 
+/** SPRD: add method { */
+status_t MediaRecorder::pause()
+{
+    ALOGV("pause");
+    if(mMediaRecorder == NULL){
+        ALOGE("media recorder is not initialized yet");
+        return INVALID_OPERATION;
+    }
+    if(!(mCurrentState & MEDIA_RECORDER_RECORDING)){
+        ALOGE("pause called in an invalid state: %d", mCurrentState);
+        return INVALID_OPERATION;
+    }
+    status_t ret = mMediaRecorder->pause();
+    if (OK != ret) {
+        ALOGE("pause failed: %d", ret);
+        mCurrentState = MEDIA_RECORDER_ERROR;
+        return ret;
+    }
+    mCurrentState = MEDIA_RECORDER_PAUSED;
+    return ret;
+}
+
+//resume can only be called when mediarecord is in pause-status
+status_t MediaRecorder::resume()
+{
+    ALOGV("resume");
+    if(mMediaRecorder == NULL){
+        ALOGE("media recorder is not initialized yet");
+        return INVALID_OPERATION;
+    }
+    if(!(mCurrentState & MEDIA_RECORDER_PAUSED)){
+        ALOGE("resume called in an invalid state: %d", mCurrentState);
+        return INVALID_OPERATION;
+    }
+    status_t ret = mMediaRecorder->resume();
+    if (OK != ret) {
+        ALOGE("pause failed: %d", ret);
+        mCurrentState = MEDIA_RECORDER_ERROR;
+        return ret;
+    }
+    mCurrentState = MEDIA_RECORDER_RECORDING;
+    return ret;
+}
+/** } */
+
+
 status_t MediaRecorder::stop()
 {
     ALOGV("stop");
@@ -504,7 +579,7 @@ status_t MediaRecorder::stop()
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
     }
-    if (!(mCurrentState & MEDIA_RECORDER_RECORDING)) {
+    if (!(mCurrentState & (MEDIA_RECORDER_RECORDING | MEDIA_RECORDER_PAUSED))) {
         ALOGE("stop called in an invalid state: %d", mCurrentState);
         return INVALID_OPERATION;
     }

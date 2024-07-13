@@ -42,7 +42,11 @@ SoftRaw::SoftRaw(
     : SimpleSoftOMXComponent(name, callbacks, appData, component),
       mSignalledError(false),
       mChannelCount(2),
-      mSampleRate(44100) {
+      mSampleRate(44100)
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+       , mBitsPerSample(0)
+#endif
+{
     initPorts();
     CHECK_EQ(initDecoder(), (status_t)OK);
 }
@@ -58,7 +62,7 @@ void SoftRaw::initPorts() {
     def.eDir = OMX_DirInput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
-    def.nBufferSize = 32 * 1024;
+    def.nBufferSize = 72 * 1024;
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;
@@ -76,7 +80,7 @@ void SoftRaw::initPorts() {
     def.eDir = OMX_DirOutput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
-    def.nBufferSize = 32 * 1024;
+    def.nBufferSize = 64 * 1024;
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;
@@ -103,6 +107,10 @@ OMX_ERRORTYPE SoftRaw::internalGetParameter(
             OMX_AUDIO_PARAM_PCMMODETYPE *pcmParams =
                 (OMX_AUDIO_PARAM_PCMMODETYPE *)params;
 
+            if (!isValidOMXParam(pcmParams)) {
+                return OMX_ErrorBadParameter;
+            }
+
             if (pcmParams->nPortIndex != 0 && pcmParams->nPortIndex != 1) {
                 return OMX_ErrorUndefined;
             }
@@ -110,7 +118,14 @@ OMX_ERRORTYPE SoftRaw::internalGetParameter(
             pcmParams->eNumData = OMX_NumericalDataSigned;
             pcmParams->eEndian = OMX_EndianBig;
             pcmParams->bInterleaved = OMX_TRUE;
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+           if(mBitsPerSample == 24)
+                    pcmParams->nBitPerSample = mBitsPerSample;
+                else
+                    pcmParams->nBitPerSample = 16;
+#else
             pcmParams->nBitPerSample = 16;
+#endif
             pcmParams->ePCMMode = OMX_AUDIO_PCMModeLinear;
             pcmParams->eChannelMapping[0] = OMX_AUDIO_ChannelLF;
             pcmParams->eChannelMapping[1] = OMX_AUDIO_ChannelRF;
@@ -134,6 +149,10 @@ OMX_ERRORTYPE SoftRaw::internalSetParameter(
             const OMX_PARAM_COMPONENTROLETYPE *roleParams =
                 (const OMX_PARAM_COMPONENTROLETYPE *)params;
 
+            if (!isValidOMXParam(roleParams)) {
+                return OMX_ErrorBadParameter;
+            }
+
             if (strncmp((const char *)roleParams->cRole,
                         "audio_decoder.raw",
                         OMX_MAX_STRINGNAME_SIZE - 1)) {
@@ -148,12 +167,21 @@ OMX_ERRORTYPE SoftRaw::internalSetParameter(
             const OMX_AUDIO_PARAM_PCMMODETYPE *pcmParams =
                 (OMX_AUDIO_PARAM_PCMMODETYPE *)params;
 
+            if (!isValidOMXParam(pcmParams)) {
+                return OMX_ErrorBadParameter;
+            }
+
             if (pcmParams->nPortIndex != 0) {
                 return OMX_ErrorUndefined;
             }
 
             mChannelCount = pcmParams->nChannels;
             mSampleRate = pcmParams->nSamplingRate;
+
+#ifdef AUDIO_24BIT_PLAYBACK_SUPPORT
+            ALOGE("peter:  pcmParams->nBitPerSample %d",pcmParams->nBitPerSample);
+            mBitsPerSample = pcmParams->nBitPerSample;
+#endif
 
             return OMX_ErrorNone;
         }

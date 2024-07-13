@@ -30,34 +30,51 @@ extern const char *MEDIA_MIMETYPE_VIDEO_MPEG4;
 extern const char *MEDIA_MIMETYPE_VIDEO_H263;
 extern const char *MEDIA_MIMETYPE_VIDEO_MPEG2;
 extern const char *MEDIA_MIMETYPE_VIDEO_RAW;
+extern const char *MEDIA_MIMETYPE_VIDEO_MJPG;
 
+extern const char *MEDIA_MIMETYPE_AUDIO_AMR;
 extern const char *MEDIA_MIMETYPE_AUDIO_AMR_NB;
 extern const char *MEDIA_MIMETYPE_AUDIO_AMR_WB;
 extern const char *MEDIA_MIMETYPE_AUDIO_MPEG;           // layer III
+extern const char *MEDIA_MIMETYPE_AUDIO_MP3;
+extern const char *MEDIA_MIMETYPE_AUDIO_MPG3;
+
+extern const char *MEDIA_MIMETYPE_AUDIO_X_MP3;
+extern const char *MEDIA_MIMETYPE_AUDIO_MPEG3;
+
+extern const char *MEDIA_MIMETYPE_AUDIO_BP3;
 extern const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_I;
 extern const char *MEDIA_MIMETYPE_AUDIO_MPEG_LAYER_II;
 extern const char *MEDIA_MIMETYPE_AUDIO_MIDI;
+extern const char *MEDIA_MIMETYPE_AUDIO_MIDI1;
 extern const char *MEDIA_MIMETYPE_AUDIO_AAC;
+extern const char *MEDIA_MIMETYPE_AUDIO_AAC3;
 extern const char *MEDIA_MIMETYPE_AUDIO_QCELP;
 extern const char *MEDIA_MIMETYPE_AUDIO_VORBIS;
 extern const char *MEDIA_MIMETYPE_AUDIO_OPUS;
 extern const char *MEDIA_MIMETYPE_AUDIO_G711_ALAW;
 extern const char *MEDIA_MIMETYPE_AUDIO_G711_MLAW;
 extern const char *MEDIA_MIMETYPE_AUDIO_RAW;
+extern const char *MEDIA_MIMETYPE_AUDIO_IMAADPCM;
 extern const char *MEDIA_MIMETYPE_AUDIO_FLAC;
 extern const char *MEDIA_MIMETYPE_AUDIO_AAC_ADTS;
+extern const char *MEDIA_MIMETYPE_AUDIO_AAC2;
 extern const char *MEDIA_MIMETYPE_AUDIO_MSGSM;
 extern const char *MEDIA_MIMETYPE_AUDIO_AC3;
 extern const char *MEDIA_MIMETYPE_AUDIO_EAC3;
 
 extern const char *MEDIA_MIMETYPE_CONTAINER_MPEG4;
 extern const char *MEDIA_MIMETYPE_CONTAINER_WAV;
+extern const char *MEDIA_MIMETYPE_CONTAINER_WAV2;
 extern const char *MEDIA_MIMETYPE_CONTAINER_OGG;
+extern const char *MEDIA_MIMETYPE_CONTAINER_OGG2;
 extern const char *MEDIA_MIMETYPE_CONTAINER_MATROSKA;
+extern const char *MEDIA_MIMETYPE_CONTAINER_WEBM;
 extern const char *MEDIA_MIMETYPE_CONTAINER_MPEG2TS;
 extern const char *MEDIA_MIMETYPE_CONTAINER_AVI;
+extern const char *MEDIA_MIMETYPE_CONTAINER_MSVIDEO;
 extern const char *MEDIA_MIMETYPE_CONTAINER_MPEG2PS;
-
+extern const char *MEDIA_MIMETYPE_CONTAINER_FLV;
 extern const char *MEDIA_MIMETYPE_CONTAINER_WVM;
 
 extern const char *MEDIA_MIMETYPE_TEXT_3GPP;

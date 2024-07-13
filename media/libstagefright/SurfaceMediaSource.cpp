@@ -59,8 +59,16 @@ SurfaceMediaSource::SurfaceMediaSource(uint32_t bufferWidth, uint32_t bufferHeig
 
     BufferQueue::createBufferQueue(&mProducer, &mConsumer);
     mConsumer->setDefaultBufferSize(bufferWidth, bufferHeight);
-    mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER |
-            GRALLOC_USAGE_HW_TEXTURE);
+
+    if (!isGpuRgbModeEnabled()) {
+        mConsumer->setDefaultBufferFormat(HAL_PIXEL_FORMAT_YCrCb_420_SP);
+        mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER |
+                 GRALLOC_USAGE_HW_TEXTURE);
+    }
+    else {
+        mConsumer->setConsumerUsageBits(GRALLOC_USAGE_HW_VIDEO_ENCODER |
+                 GRALLOC_USAGE_HW_TEXTURE);
+    }
 
     sp<ISurfaceComposer> composer(ComposerService::getComposerService());
 
@@ -77,6 +85,18 @@ SurfaceMediaSource::SurfaceMediaSource(uint32_t bufferWidth, uint32_t bufferHeig
                 strerror(-err), err);
     }
 }
+
+//static
+bool SurfaceMediaSource::isGpuRgbModeEnabled() {
+    #ifndef WIFIDISPLAY_GPUMODE_RGB_ENABLED
+        ALOGE("Current GPU output yuv to wfd");
+        return false;
+    #else
+        ALOGE("Current GPU output rgb to wfd");
+        return true;
+    #endif
+}
+
 
 SurfaceMediaSource::~SurfaceMediaSource() {
     ALOGV("~SurfaceMediaSource");

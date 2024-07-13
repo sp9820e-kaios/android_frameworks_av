@@ -45,6 +45,9 @@ class Camera2Device: public CameraDeviceBase {
     virtual int      getId() const;
     virtual status_t initialize(CameraModule *module);
     virtual status_t disconnect();
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+    virtual int cancelPicture();
+#endif
     virtual status_t dump(int fd, const Vector<String16>& args);
     virtual const CameraMetadata& info() const;
     virtual status_t capture(CameraMetadata &request, int64_t *lastFrameNumber = NULL);

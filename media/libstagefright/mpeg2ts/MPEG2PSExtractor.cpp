@@ -757,7 +757,8 @@ bool SniffMPEG2PS(
         return false;
     }
 
-    if (memcmp("\x00\x00\x01\xba", header, 4) || (header[4] >> 6) != 1) {
+    if (memcmp("\x00\x00\x01\xba", header, 4) ||
+            ((header[4] >> 6) != 1 && (header[4] >> 6 != 0))) {
         return false;
     }
 

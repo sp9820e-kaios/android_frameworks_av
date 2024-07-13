@@ -95,7 +95,7 @@ enum video_encoder {
     VIDEO_ENCODER_H264 = 2,
     VIDEO_ENCODER_MPEG_4_SP = 3,
     VIDEO_ENCODER_VP8 = 4,
-
+    VIDEO_ENCODER_H265 = 5,
     VIDEO_ENCODER_LIST_END // must be the last - used to validate the video encoder type
 };
 
@@ -120,6 +120,9 @@ enum media_recorder_states {
 
     // Recording is in progress.
     MEDIA_RECORDER_RECORDING             = 1 << 4,
+
+    //SPRD: add Recording is paused
+    MEDIA_RECORDER_PAUSED                     = 1<<5
 };
 
 // The "msg" code passed to the listener in notify.
@@ -167,6 +170,7 @@ enum media_recorder_info_type {
 
     MEDIA_RECORDER_INFO_MAX_DURATION_REACHED      = 800,
     MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED      = 801,
+    MEDIA_RECORDER_INFO_TRACKS_HAVE_DATA          = 802,
 
     // All track related informtional events start here
     MEDIA_RECORDER_TRACK_INFO_LIST_START           = 1000,
@@ -231,6 +235,8 @@ public:
     status_t    prepare();
     status_t    getMaxAmplitude(int* max);
     status_t    start();
+    status_t    pause(); //SPRD: add method
+    status_t    resume(); //SPRD: add method
     status_t    stop();
     status_t    reset();
     status_t    init();

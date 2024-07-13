@@ -43,6 +43,7 @@
 #include <utils/Trace.h>
 #include <utils/Timers.h>
 
+#include "CameraService.h"
 #include "utils/CameraTraces.h"
 #include "device3/Camera3Device.h"
 #include "device3/Camera3OutputStream.h"
@@ -50,6 +51,7 @@
 #include "device3/Camera3ZslStream.h"
 #include "device3/Camera3DummyStream.h"
 #include "CameraService.h"
+#include <SprdCamera3Tags.h>
 
 using namespace android::camera3;
 
@@ -63,6 +65,7 @@ Camera3Device::Camera3Device(int id):
         mStatusWaiters(0),
         mUsePartialResult(false),
         mNumPartialResults(1),
+        mTimestampOffset(0),
         mNextResultFrameNumber(0),
         mNextReprocessResultFrameNumber(0),
         mNextShutterFrameNumber(0),
@@ -199,6 +202,13 @@ status_t Camera3Device::initialize(CameraModule *module)
     mNeedConfig = true;
     mPauseStateNotify = false;
 
+    // Measure the clock domain offset between camera and video/hw_composer
+    camera_metadata_entry timestampSource =
+            mDeviceInfo.find(ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE);
+    if (timestampSource.count > 0 && timestampSource.data.u8[0] ==
+            ANDROID_SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME) {
+        mTimestampOffset = getMonoToBoottimeOffset();
+    }
     // Will the HAL be sending in early partial result metadata?
     if (mDeviceVersion >= CAMERA_DEVICE_API_VERSION_3_2) {
         camera_metadata_entry partialResultsCount =
@@ -305,6 +315,16 @@ status_t Camera3Device::disconnect() {
     return res;
 }
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+int Camera3Device::cancelPicture() {
+	status_t res = OK;
+	int cancelCount;
+	ALOGV("canclePicture Camera3Device begin .. ");
+	cancelCount = mRequestThread->removemRequestQueue();
+	ALOGV("canclePicture Camera3Device end");
+	return cancelCount;
+}
+#endif
 // For dumping/debugging only -
 // try to acquire a lock a few times, eventually give up to proceed with
 // debug/dump operations
@@ -366,6 +386,24 @@ Camera3Device::Size Camera3Device::getMaxJpegResolution() const {
         }
     }
     return Size(maxJpegWidth, maxJpegHeight);
+}
+
+nsecs_t Camera3Device::getMonoToBoottimeOffset() {
+    // try three times to get the clock offset, choose the one
+    // with the minimum gap in measurements.
+    const int tries = 3;
+    nsecs_t bestGap, measured;
+    for (int i = 0; i < tries; ++i) {
+        const nsecs_t tmono = systemTime(SYSTEM_TIME_MONOTONIC);
+        const nsecs_t tbase = systemTime(SYSTEM_TIME_BOOTTIME);
+        const nsecs_t tmono2 = systemTime(SYSTEM_TIME_MONOTONIC);
+        const nsecs_t gap = tmono2 - tmono;
+        if (i == 0 || gap < bestGap) {
+            bestGap = gap;
+            measured = tbase - ((tmono + tmono2) >> 1);
+        }
+    }
+    return measured;
 }
 
 ssize_t Camera3Device::getJpegBufferSize(uint32_t width, uint32_t height) const {
@@ -854,6 +892,12 @@ status_t Camera3Device::createStream(sp<Surface> consumer,
     status_t res;
     bool wasActive = false;
 
+#ifdef CONFIG_CAMERA_SPRD_EIS
+    //if creat preview stream, save preview consumer for eis crop
+    if (dataSpace == HAL_DATASPACE_UNKNOWN) mPrevWindow = consumer;
+#endif
+
+
     switch (mStatus) {
         case STATUS_ERROR:
             CLOGE("Device has encountered a serious error");
@@ -897,10 +941,10 @@ status_t Camera3Device::createStream(sp<Surface> consumer,
             }
         }
         newStream = new Camera3OutputStream(mNextStreamId, consumer,
-                width, height, blobBufferSize, format, dataSpace, rotation);
+                width, height, blobBufferSize, format, dataSpace, rotation,mTimestampOffset);
     } else {
         newStream = new Camera3OutputStream(mNextStreamId, consumer,
-                width, height, format, dataSpace, rotation);
+                width, height, format, dataSpace, rotation,mTimestampOffset);
     }
     newStream->setStatusTracker(mStatusTracker);
 
@@ -1093,6 +1137,13 @@ status_t Camera3Device::createDefaultRequest(int templateId,
         CameraMetadata *request) {
     ATRACE_CALL();
     ALOGV("%s: for template %d", __FUNCTION__, templateId);
+
+    if (templateId <= 0 || templateId >= CAMERA3_TEMPLATE_COUNT) {
+        android_errorWriteWithInfoLog(CameraService::SN_EVENT_LOG_ID, "26866110",
+                IPCThreadState::self()->getCallingUid(), NULL, 0);
+        return BAD_VALUE;
+    }
+
     Mutex::Autolock il(mInterfaceLock);
     Mutex::Autolock l(mLock);
 
@@ -2365,6 +2416,25 @@ void Camera3Device::processCaptureResult(const camera3_capture_result *result) {
                 sendCaptureResult(metadata, request.resultExtras,
                     collectedPartialResult, frameNumber, hasInputBufferInRequest,
                     request.aeTriggerCancelOverride);
+#ifdef CONFIG_CAMERA_SPRD_EIS
+                //when is in dv mode and eis enable, use gralloc crop for preview stab
+                if(metadata.find(ANDROID_CONTROL_CAPTURE_INTENT).data.u8[0] == ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_RECORD &&
+                    metadata.find(ANDROID_SPRD_EIS_ENABLED).data.u8[0]) {
+                        camera_metadata_entry entry = metadata.find(ANDROID_SPRD_EIS_CROP);
+                        int32_t left = entry.data.i32[0];
+                        int32_t top = entry.data.i32[1];
+                        int32_t right = entry.data.i32[2];
+                        int32_t bottom = entry.data.i32[3];
+                        ALOGV("eis crop left,top,right,bottom[%d,%d,%d,%d]",left,top,right,bottom);
+                        if (right == 0 || bottom == 0) {
+                            ALOGD("eis crop region is null");
+                        }else{
+                            android_native_rect_t crop = { left, top, right, bottom};
+                            native_window_set_crop(mPrevWindow.get(), &crop);
+                        }
+                }
+#endif
+
             }
         }
 
@@ -2591,6 +2661,41 @@ void Camera3Device::RequestThread::configurationComplete() {
     mReconfigured = true;
 }
 
+#ifdef ANDROID_FRAMEWORKS_CAMERA_SPRD
+int Camera3Device::RequestThread::removemRequestQueue() {
+	ALOGV("RequestThread::%s:", __FUNCTION__);
+	int restCaptureRequestCount = 0;
+	int lastid = -1;
+	int index = 0;
+	int finish = 0;
+	for (RequestList::iterator it = mRequestQueue.begin();
+			it != mRequestQueue.end(); ++it) {
+		index++;
+		ALOGD("removemRequestQueue::%d:",(*it)->mResultExtras.requestId);
+		if (index == 2 && (*it)->mResultExtras.requestId - lastid > 5){
+			ALOGD("removemRequestQueue (*it)->mResultExtras.requestId - lastid = %d",(*it)->mResultExtras.requestId - lastid);
+			finish = 1;
+		}
+		if (lastid == (*it)->mResultExtras.requestId) {
+			restCaptureRequestCount++;
+		}
+		lastid = (*it)->mResultExtras.requestId;
+	}
+	if (index == 1 || index == 0){
+		ALOGD("removemRequestQueue index ==1 || 0");
+		finish = 1;
+	}
+	if (finish){
+		ALOGD("removemRequestQueue finish");
+		restCaptureRequestCount = 0;
+	}else{
+		restCaptureRequestCount++;
+	}
+	ALOGD("removemRequestQueue restCaptureRequestCount = %d",restCaptureRequestCount);
+	mRequestQueue.clear();
+	return restCaptureRequestCount;
+}
+#endif
 status_t Camera3Device::RequestThread::queueRequestList(
         List<sp<CaptureRequest> > &requests,
         /*out*/
@@ -2764,6 +2869,7 @@ status_t Camera3Device::RequestThread::waitUntilRequestProcessed(
         int32_t requestId, nsecs_t timeout) {
     Mutex::Autolock l(mLatestRequestMutex);
     status_t res;
+	ALOGD("532887 wait for mLatestRequestId %d to catch requestId %d", mLatestRequestId, requestId);
     while (mLatestRequestId != requestId) {
         nsecs_t startTime = systemTime();
 
@@ -2772,6 +2878,7 @@ status_t Camera3Device::RequestThread::waitUntilRequestProcessed(
 
         timeout -= (systemTime() - startTime);
     }
+	ALOGD("532887 wait successful");
 
     return OK;
 }
@@ -3000,6 +3107,9 @@ bool Camera3Device::RequestThread::threadLoop() {
     {
         Mutex::Autolock al(mLatestRequestMutex);
 
+		if(mLatestRequestId != requestId){
+			ALOGD("532887 update mLatestRequestId to %d and signal", mLatestRequestId);
+		}
         mLatestRequestId = requestId;
         mLatestRequestSignal.signal();
     }

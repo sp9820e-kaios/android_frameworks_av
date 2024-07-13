@@ -74,10 +74,15 @@ LOCAL_C_INCLUDES += \
     system/media/camera/include \
     system/media/private/camera/include \
     frameworks/native/include/media/openmax \
-    external/jpeg
+    external/jpeg \
+    vendor/sprd/modules/libcamera/include
 
+ifeq ($(strip $(TARGET_BOARD_CAMERA_EIS)),true)
+LOCAL_CFLAGS += -DCONFIG_CAMERA_SPRD_EIS
+endif
 
 LOCAL_CFLAGS += -Wall -Wextra
+LOCAL_CFLAGS += -DANDROID_FRAMEWORKS_CAMERA_SPRD
 
 LOCAL_MODULE:= libcameraservice
 

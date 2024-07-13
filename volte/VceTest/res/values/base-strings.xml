@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<resources>
+    <string name="app_name">VceTest</string>
+    <string name="intro_message">
+        <![CDATA[
+            This APP is designed to test volte video engine APIS;
+        ]]>
+    </string>
+</resources>

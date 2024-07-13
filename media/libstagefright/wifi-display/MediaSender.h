@@ -93,7 +93,9 @@ private:
         ssize_t mPacketizerTrackIndex;
         bool mIsAudio;
     };
-
+    uint32_t mSendFlowCtr_TotalSize;
+    int64_t mSendFlowCtr_LatestTime;
+    uint32_t mSendFlowCtr_Count;
     sp<ANetworkSession> mNetSession;
     sp<AMessage> mNotify;
 
